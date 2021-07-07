@@ -32,7 +32,11 @@ type MapOptions struct {
 // The mapper works by reading the column names from a struct fields `db:""` struct tag.
 // If you specify `,omitempty` as a tag option, then it will omit the column from the list,
 // which allows the database to take over and use its default value.
-func Map(record interface{}, options *MapOptions) ([]string, []interface{}, error) {
+func Map(record interface{}) ([]string, []interface{}, error) {
+	return MapWithOptions(record, nil)
+}
+
+func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interface{}, error) {
 	var fv fieldValue
 	if options == nil {
 		options = &defaultMapOptions

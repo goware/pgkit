@@ -1,13 +1,15 @@
 TODO
 ====
 
-- [ ] use to the mapper, to insert from struct -> row
+- [x] use to the mapper, to insert from struct -> row
 
 - [ ] JSONB type, how does it feel..?
 - [ ] *big.Int type
 - [ ] register custom types..
 
-- [ ] DB.Scan, or other sugar..?
+- [x] DB row scanning sugar
 
-- [ ] pretty much, done for now.. lets tag it and try it out.
+- [ ] txn syntax, + tests
+
+- [ ] test with batch insert, etc.
 
