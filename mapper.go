@@ -11,68 +11,52 @@ import (
 var Mapper = reflectx.NewMapper("db")
 
 var (
+	defaultMapOptions = MapOptions{
+		IncludeZeroed: false,
+		IncludeNil:    false,
+	}
+
 	sqlDefault = sq.Expr("DEFAULT")
+
+	ErrExpectingPointerToEitherMapOrStruct = fmt.Errorf(`expecting a pointer to either a map or a struct`)
 )
 
-type hasIsZero interface {
-	IsZero() bool
-}
-
-// MapOptions represents options for the mapper.
 type MapOptions struct {
 	IncludeZeroed bool
 	IncludeNil    bool
 }
 
-var defaultMapOptions = MapOptions{
-	IncludeZeroed: false,
-	IncludeNil:    false,
-}
-
-type fieldValue struct {
-	fields []string
-	values []interface{}
-}
-
-func (fv *fieldValue) Len() int {
-	return len(fv.fields)
-}
-
-func (fv *fieldValue) Swap(i, j int) {
-	fv.fields[i], fv.fields[j] = fv.fields[j], fv.fields[i]
-	fv.values[i], fv.values[j] = fv.values[j], fv.values[i]
-}
-
-func (fv *fieldValue) Less(i, j int) bool {
-	return fv.fields[i] < fv.fields[j]
-}
-
-// Map receives a pointer to map or struct and maps it to columns and values.
-func Map(item interface{}, options *MapOptions) ([]string, []interface{}, error) {
+// Map converts a struct object (aka record) to a mapping of column names and values
+// which can be directly passed to a query executor. This allows you to use structs/objects
+// to build easy insert/update queries without having to specify the column names manually.
+// The mapper works by reading the column names from a struct fields `db:""` struct tag.
+// If you specify `,omitempty` as a tag option, then it will omit the column from the list,
+// which allows the database to take over and use its default value.
+func Map(record interface{}, options *MapOptions) ([]string, []interface{}, error) {
 	var fv fieldValue
 	if options == nil {
 		options = &defaultMapOptions
 	}
 
-	itemV := reflect.ValueOf(item)
-	if !itemV.IsValid() {
+	recordV := reflect.ValueOf(record)
+	if !recordV.IsValid() {
 		return nil, nil, nil
 	}
 
-	itemT := itemV.Type()
+	recordT := recordV.Type()
 
-	if itemT.Kind() == reflect.Ptr {
+	if recordT.Kind() == reflect.Ptr {
 		// Single dereference. Just in case the user passes a pointer to struct
 		// instead of a struct.
-		item = itemV.Elem().Interface()
-		itemV = reflect.ValueOf(item)
-		itemT = itemV.Type()
+		record = recordV.Elem().Interface()
+		recordV = reflect.ValueOf(record)
+		recordT = recordV.Type()
 	}
 
-	switch itemT.Kind() {
+	switch recordT.Kind() {
 
 	case reflect.Struct:
-		fieldMap := Mapper.TypeMap(itemT).Names
+		fieldMap := Mapper.TypeMap(recordT).Names
 		nfields := len(fieldMap)
 
 		fv.values = make([]interface{}, 0, nfields)
@@ -83,7 +67,7 @@ func Map(item interface{}, options *MapOptions) ([]string, []interface{}, error)
 			// Field options
 			_, tagOmitEmpty := fi.Options["omitempty"]
 
-			fld := reflectx.FieldByIndexesReadOnly(itemV, fi.Index)
+			fld := reflectx.FieldByIndexesReadOnly(recordV, fi.Index)
 			if fld.Kind() == reflect.Ptr && fld.IsNil() {
 				if tagOmitEmpty && !options.IncludeNil {
 					continue
@@ -131,13 +115,13 @@ func Map(item interface{}, options *MapOptions) ([]string, []interface{}, error)
 		}
 
 	case reflect.Map:
-		nfields := itemV.Len()
+		nfields := recordV.Len()
 		fv.values = make([]interface{}, nfields)
 		fv.fields = make([]string, nfields)
-		mkeys := itemV.MapKeys()
+		mkeys := recordV.MapKeys()
 
 		for i, keyV := range mkeys {
-			valv := itemV.MapIndex(keyV)
+			valv := recordV.MapIndex(keyV)
 			fv.fields[i] = fmt.Sprintf("%v", keyV.Interface())
 
 			v, err := marshal(valv.Interface())
@@ -158,7 +142,27 @@ func Map(item interface{}, options *MapOptions) ([]string, []interface{}, error)
 	return fv.fields, fv.values, nil
 }
 
-var ErrExpectingPointerToEitherMapOrStruct = fmt.Errorf(`expecting a pointer to either a map or a struct`)
+type fieldValue struct {
+	fields []string
+	values []interface{}
+}
+
+func (fv *fieldValue) Len() int {
+	return len(fv.fields)
+}
+
+func (fv *fieldValue) Swap(i, j int) {
+	fv.fields[i], fv.fields[j] = fv.fields[j], fv.fields[i]
+	fv.values[i], fv.values[j] = fv.values[j], fv.values[i]
+}
+
+func (fv *fieldValue) Less(i, j int) bool {
+	return fv.fields[i] < fv.fields[j]
+}
+
+type hasIsZero interface {
+	IsZero() bool
+}
 
 func marshal(v interface{}) (interface{}, error) {
 	// TODO: review db.Marshaler, we may want to keep this too, etc......
