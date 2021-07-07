@@ -55,12 +55,10 @@ todo:
 ## Database stuff
 ##
 db-reset:
-	@($(MAKE) db-drop || exit 0) && \
-	($(MAKE) db-create || exit 0) && \
-	PGPASSWORD=$(PG_PASSWORD) PG_USER=$(PG_USER) PG_HOST=$(PG_HOST) ./scripts/db.sh import $(PG_DATABASE) ./tests/testdata/pgkit_test_db.sql
+	@env PGPASSWORD=$(PG_PASSWORD) PG_USER=$(PG_USER) PG_HOST=$(PG_HOST) ./scripts/db.sh import $(PG_DATABASE) ./tests/testdata/pgkit_test_db.sql
 
 db-create:
-	@env PG_USER=$(PG_USER) ./scripts/db.sh create $(PG_DATABASE)
+	@env PGPASSWORD=$(PG_PASSWORD) PG_USER=$(PG_USER) ./scripts/db.sh create $(PG_DATABASE)
 
 db-drop:
-	@env PG_USER=$(PG_USER) ./scripts/db.sh drop $(PG_DATABASE)
+	@env PGPASSWORD=$(PG_PASSWORD) PG_USER=$(PG_USER) ./scripts/db.sh drop $(PG_DATABASE)
