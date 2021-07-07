@@ -37,7 +37,7 @@ clean:
 	go clean -cache -testcache
 
 test: test-clean
-	GOGC=off go test $(TEST_FLAGS) $(MOD_VENDOR) -run=$(TEST) .
+	GOGC=off go test $(TEST_FLAGS) $(MOD_VENDOR) -run=$(TEST) ./tests/...
 
 test-all: test-clean
 	GOGC=off go test $(TEST_FLAGS) $(MOD_VENDOR) -run=$(TEST) ./...
@@ -57,7 +57,7 @@ todo:
 db-reset:
 	@($(MAKE) db-drop || exit 0) && \
 	($(MAKE) db-create || exit 0) && \
-	PGPASSWORD=$(PG_PASSWORD) PG_USER=$(PG_USER) PG_HOST=$(PG_HOST) ./scripts/db.sh import $(PG_DATABASE) ./testdata/pgkit_test_db.sql
+	PGPASSWORD=$(PG_PASSWORD) PG_USER=$(PG_USER) PG_HOST=$(PG_HOST) ./scripts/db.sh import $(PG_DATABASE) ./tests/testdata/pgkit_test_db.sql
 
 db-create:
 	@env PG_USER=$(PG_USER) ./scripts/db.sh create $(PG_DATABASE)
