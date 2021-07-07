@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	DB *pgkit.Database
+	DB *pgkit.DB
 )
 
 func init() {
@@ -34,46 +34,101 @@ func init() {
 		log.Fatal(fmt.Errorf("failed to connect db: %w", err))
 	}
 
-	err = DB.Ping(context.Background())
+	err = DB.Conn.Ping(context.Background())
 	if err != nil {
 		log.Fatal(fmt.Errorf("failed to ping db: %w", err))
 	}
 }
 
 func TestPing(t *testing.T) {
-	err := DB.Ping(context.Background())
+	err := DB.Conn.Ping(context.Background())
 	assert.NoError(t, err)
 }
 
-func TestBasicInsertAndSelect(t *testing.T) {
+func TestSugarInsertAndSelectRows(t *testing.T) {
+	truncateTable(t, "accounts")
+
+	// Insert
+	q1 := DB.SQL.Insert("accounts").Columns("name", "disabled").Values("peter", false)
+	_, err := DB.Query.Exec(context.Background(), q1)
+	assert.NoError(t, err)
+
+	// Select
+	var accounts []*Account
+	q2 := DB.SQL.Select("*").From("accounts")
+	err = DB.Query.GetAll(context.Background(), q2, &accounts)
+
+	assert.NoError(t, err)
+	assert.Len(t, accounts, 1)
+	assert.True(t, accounts[0].ID != 0)
+	assert.Equal(t, "peter", accounts[0].Name)
+}
+
+// TestInsertAndSelectRows is a more verbose version of TestSugarBasicInsertAndSelectRows
+func TestInsertAndSelectRows(t *testing.T) {
 	truncateTable(t, "accounts")
 
 	// Insert
 	insertq, args, err := DB.SQL.Insert("accounts").Columns("name", "disabled").Values("peter", false).ToSql()
 	assert.NoError(t, err)
 
-	_, err = DB.Exec(context.Background(), insertq, args...)
+	_, err = DB.Conn.Exec(context.Background(), insertq, args...)
 	assert.NoError(t, err)
 
 	// Select all
 	selectq, args := DB.SQL.Select("*").From("accounts").MustSql()
 
-	// rows, err := DB.Query(context.Background(), selectq, args...)
-	// assert.NoError(t, err)
-
 	var accounts []*Account
-
-	// TODO ..
-	// err = DB.Scan.Select(context.Background(), &accounts, selectq, args...)
-
-	err = pgxscan.Select(context.Background(), DB, &accounts, selectq, args...)
+	err = pgxscan.Select(context.Background(), DB.Conn, &accounts, selectq, args...)
 
 	assert.NoError(t, err)
 	assert.Len(t, accounts, 1)
+	assert.True(t, accounts[0].ID != 0)
 	assert.Equal(t, "peter", accounts[0].Name)
 }
 
-func TestInsertingRecords(t *testing.T) {
+func TestSugarInsertAndSelectRecords(t *testing.T) {
+	truncateTable(t, "accounts")
+
+	// Insert
+	rec := &Account{
+		Name:     "joe",
+		Disabled: true,
+	}
+
+	q1 := DB.SQL.InsertRecord(rec) //, "accounts")
+	_, err := DB.Query.Exec(context.Background(), q1)
+	assert.NoError(t, err)
+
+	// Select all
+	var accounts []*Account
+	q2 := DB.SQL.Select("*").From("accounts")
+	err = DB.Query.GetAll(context.Background(), q2, &accounts)
+	assert.NoError(t, err)
+	assert.Len(t, accounts, 1)
+	assert.True(t, accounts[0].ID != 0)
+	assert.Equal(t, "joe", accounts[0].Name)
+
+	// Select one -- into object
+	account := &Account{}
+	err = DB.Query.GetOne(context.Background(), q2, account)
+	assert.NoError(t, err)
+	assert.Len(t, accounts, 1)
+	assert.True(t, accounts[0].ID != 0)
+	assert.Equal(t, "joe", accounts[0].Name)
+
+	// Select one -- into struct value
+	var accountv Account
+	err = DB.Query.GetOne(context.Background(), q2, &accountv)
+	assert.NoError(t, err)
+	assert.Len(t, accounts, 1)
+	assert.True(t, accounts[0].ID != 0)
+	assert.Equal(t, "joe", accounts[0].Name)
+}
+
+// TestInsertAndSelectRecords is a more verbose version of TestSugarInsertAndSelectRecords
+func TestInsertAndSelectRecords(t *testing.T) {
+	truncateTable(t, "accounts")
 
 	// Create & insert record
 	rec := &Account{
@@ -82,7 +137,7 @@ func TestInsertingRecords(t *testing.T) {
 	}
 
 	// Map from object to columns / values
-	cols, vals, err := pgkit.Map(rec, nil)
+	cols, vals, err := pgkit.Map(rec)
 	assert.NoError(t, err)
 
 	// Build insert query
@@ -90,7 +145,7 @@ func TestInsertingRecords(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Exec the insert query
-	_, err = DB.Exec(context.Background(), insertq, args...)
+	_, err = DB.Conn.Exec(context.Background(), insertq, args...)
 	assert.NoError(t, err)
 
 	// Select query
@@ -98,7 +153,7 @@ func TestInsertingRecords(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Build select query
-	rows, err := DB.Query(context.Background(), selectq, args...)
+	rows, err := DB.Conn.Query(context.Background(), selectq, args...)
 	defer rows.Close()
 	assert.NoError(t, err)
 
@@ -110,6 +165,19 @@ func TestInsertingRecords(t *testing.T) {
 	assert.True(t, a.ID != 0)
 	assert.Equal(t, "joe", a.Name)
 	assert.Equal(t, true, a.Disabled)
+
+	// Insert another record, with short-hand syntax
+	rec.Name = "joe2" // reusing same object, because it works
+	cols, vals, err = pgkit.Map(rec)
+	assert.NoError(t, err)
+}
+
+func TestSugarQueryWithNoResults(t *testing.T) {
+	q := DB.SQL.Select("*").From("accounts").Where(sq.Eq{"name": "no-match"})
+
+	var account interface{}
+	err := DB.Query.GetOne(context.Background(), q, &account)
+	assert.True(t, errors.Is(err, pgkit.ErrNoRows))
 }
 
 func TestQueryWithNoResults(t *testing.T) {
@@ -120,14 +188,14 @@ func TestQueryWithNoResults(t *testing.T) {
 
 	// shorthand
 	{
-		err = pgxscan.Select(context.Background(), DB, &accounts, selectq, args...)
+		err = pgxscan.Select(context.Background(), DB.Conn, &accounts, selectq, args...)
 		assert.NoError(t, err)
 		assert.Len(t, accounts, 0)
 	}
 
 	// or, with more verbose method:
 	{
-		rows, err := DB.Query(context.Background(), selectq, args...)
+		rows, err := DB.Conn.Query(context.Background(), selectq, args...)
 		defer rows.Close()
 		assert.NoError(t, err)
 
@@ -140,7 +208,21 @@ func TestQueryWithNoResults(t *testing.T) {
 	// scan one -- returning 'no rows' error
 	{
 		var a *Account
-		err = pgxscan.Get(context.Background(), DB, a, selectq, args...)
+		err = pgxscan.Get(context.Background(), DB.Conn, a, selectq, args...)
 		assert.True(t, errors.Is(err, pgx.ErrNoRows))
 	}
 }
+
+// func TestInsertRowWithBigInt(t *testing.T) {
+// 	s := &Stat{Key: "count", Num: big.NewInt(2)}
+
+// 	q := DB.SQL.InsertRecord(s, "stats")
+// 	_, err := DB.Query.Exec(context.Background(), q)
+// 	assert.NoError(t, err)
+// }
+
+// TODO: test jsonb, and big.Int custom types.....
+
+// TODO: transactions.. ugh......
+
+// TODO: batch support, right in here..? kinda makes sense..

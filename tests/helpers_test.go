@@ -13,10 +13,11 @@ func truncateAllTables(t *testing.T) {
 	truncateTable(t, "accounts")
 	truncateTable(t, "reviews")
 	truncateTable(t, "logs")
+	truncateTable(t, "stats")
 }
 
 func truncateTable(t *testing.T, tableName string) {
-	_, err := DB.Exec(context.Background(), fmt.Sprintf(`TRUNCATE TABLE %q CASCADE`, tableName))
+	_, err := DB.Conn.Exec(context.Background(), fmt.Sprintf(`TRUNCATE TABLE %q CASCADE`, tableName))
 	assert.NoError(t, err)
 }
 

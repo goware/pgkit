@@ -18,3 +18,9 @@ CREATE TABLE logs (
   message VARCHAR,
   etc JSONB
 );
+
+CREATE TABLE stats (
+  id SERIAL PRIMARY KEY,
+  key VARCHAR(80),
+  num BIGINT
+);
