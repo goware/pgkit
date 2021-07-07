@@ -8,12 +8,11 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
-var (
-	SQL = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
-)
-
 type Database struct {
 	*pgxpool.Pool
+	SQL sq.StatementBuilderType
+
+	// TODO: would be nice to have .Scan sugar..
 }
 
 type Config struct {
@@ -60,6 +59,7 @@ func ConnectWithPGXConfig(appName string, pgxConfig *pgxpool.Config) (*Database,
 
 	db := &Database{
 		Pool: pool,
+		SQL:  sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
 	}
 
 	return db, nil

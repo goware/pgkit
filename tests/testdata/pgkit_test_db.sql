@@ -1,20 +1,20 @@
 CREATE TABLE accounts (
-  id serial primary key,
-  name varchar(255),
-  disabled boolean,
-  created_at timestamp with time zone
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255),
+  disabled BOOLEAN,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
-CREATE TABLE review (
-  id serial primary key,
+CREATE TABLE reviews (
+  id SERIAL PRIMARY KEY,
   -- article_id integer,
-  name varchar(80),
-  comments text,
-  created timestamp without time zone
+  name VARCHAR(80),
+  comments TEXT,
+  created_at TIMESTAMP WITHOUT TIME ZONE
 );
 
 CREATE TABLE logs (
-  id serial primary key,
+  id SERIAL PRIMARY KEY,
   message VARCHAR,
-  etc jsonb
+  etc JSONB
 );
