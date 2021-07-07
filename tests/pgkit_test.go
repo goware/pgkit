@@ -10,9 +10,9 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/georgysavva/scany/pgxscan"
 	"github.com/goware/pgkit"
-	"github.com/goware/pgkit/dbtype"
 	"github.com/jackc/pgx/v4"
 	"github.com/stretchr/testify/assert"
 )
@@ -218,12 +218,65 @@ func TestQueryWithNoResults(t *testing.T) {
 	}
 }
 
-func TestInsertRowWithBigInt(t *testing.T) {
-	s := &Stat{Key: "count", Num: dbtype.NewBigInt(2)}
+// func TestInsertRowWithBigInt(t *testing.T) {
+// 	truncateTable(t, "stats")
 
-	q := DB.SQL.InsertRecord(s, "stats")
-	_, err := DB.Query.Exec(context.Background(), q)
+// 	s := &Stat{Key: "count", Num: dbtype.NewBigInt(2)}
+
+// 	// Insert
+// 	q1 := DB.SQL.InsertRecord(s, "stats")
+// 	_, err := DB.Query.Exec(context.Background(), q1)
+// 	assert.NoError(t, err)
+
+// 	// Select
+// 	var sout Stat
+// 	q2 := DB.SQL.Select("*").From("stats")
+// 	err = DB.Query.GetOne(context.Background(), q2, &sout)
+// 	assert.NoError(t, err)
+// 	assert.Equal(t, "count", sout.Key)
+// 	assert.True(t, sout.Num.Int64() == 2)
+// }
+
+// TODO: ...... lets see how upper does it......
+
+// TODO: can we have....... JSONBMap map[string]interface{} .. would be nice..?
+
+// ................... i think what upper does is converts this type in the builder and scanner ..
+// builder goes from map-type to jsonb and scanner goes from jsonb to map-type ..
+
+// interesting... we could make sugar for this.. but.. i think id need my own scanner..?
+
+func TestRowsWithJSONB(t *testing.T) {
+	truncateTable(t, "logs")
+
+	// etc := pgtype.JSONB{}
+	// err := etc.Set(map[string]interface{}{"a": 1})
+	// assert.NoError(t, err)
+
+	// l := &Log{Message: "hi", Etc: etc}
+
+	etc := JSONBMap{"a": 1}
+
+	// Insert
+	// q1 := DB.SQL.InsertRecord(l, "logs")
+	q1 := DB.SQL.Insert("logs").Columns("message", "etc").Values("hi", etc)
+	_, err := DB.Query.Exec(context.Background(), q1)
 	assert.NoError(t, err)
+
+	// Select
+	var lout Log
+	q2 := DB.SQL.Select("*").From("logs").Limit(1)
+	err = DB.Query.GetOne(context.Background(), q2, &lout)
+	assert.NoError(t, err)
+	assert.Equal(t, "hi", lout.Message)
+	// assert.True(t, sout.Num.Int64() == 2)
+
+	fmt.Println("==>", lout.Etc)
+
+	// m, ok := lout.Etc.Get().(map[string]interface{})
+	// assert.True(t, ok)
+
+	spew.Dump(lout)
 }
 
 // TODO: test jsonb, and big.Int custom types.....

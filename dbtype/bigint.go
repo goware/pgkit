@@ -1,7 +1,6 @@
 package dbtype
 
 import (
-	"database/sql/driver"
 	"fmt"
 	"math/big"
 )
@@ -121,14 +120,22 @@ func (b *BigInt) UnmarshalJSON(text []byte) error {
 	return b.UnmarshalText(text)
 }
 
+/*
 func (b BigInt) Value() (driver.Value, error) {
 	return b.String(), nil
 }
 
 func (b *BigInt) Scan(src interface{}) error {
+	fmt.Println("weeeee......????????????????", src)
+
 	if src == nil {
 		return nil
 	}
+
+	spew.Dump(src)
+
+	fmt.Println("okay..?")
+
 	var svalue string
 	switch v := src.(type) {
 	case string:
@@ -145,5 +152,22 @@ func (b *BigInt) Scan(src interface{}) error {
 		return fmt.Errorf("BigInt.Scan: failed to scan value %q", svalue)
 	}
 	*b = BigInt(*i)
+	return nil
+}
+*/
+
+func (dst *BigInt) Set(src interface{}) error {
+	if src == nil {
+		// *dst = Numeric{Status: pgtype.Null}
+		return nil
+	}
+
+	fmt.Println("======> src", src)
+	panic("set")
+	return nil
+}
+
+func (b BigInt) Get() interface{} {
+	panic("get")
 	return nil
 }
