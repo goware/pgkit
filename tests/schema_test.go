@@ -1,9 +1,9 @@
 package pgkit_test
 
 import (
-	"math/big"
 	"time"
 
+	"github.com/goware/pgkit/dbtype"
 	"github.com/jackc/pgtype"
 )
 
@@ -28,9 +28,9 @@ type Log struct {
 }
 
 type Stat struct {
-	ID  int64    `db:"id,omitempty"`
-	Key string   `db:"key"`
-	Num *big.Int `db:"num"`
+	ID  int64         `db:"id,omitempty"`
+	Key string        `db:"key"`
+	Num dbtype.BigInt `db:"num"`
 }
 
 func (a *Account) DBTableName() string {

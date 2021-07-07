@@ -12,6 +12,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/georgysavva/scany/pgxscan"
 	"github.com/goware/pgkit"
+	"github.com/goware/pgkit/dbtype"
 	"github.com/jackc/pgx/v4"
 	"github.com/stretchr/testify/assert"
 )
@@ -170,6 +171,10 @@ func TestInsertAndSelectRecords(t *testing.T) {
 	rec.Name = "joe2" // reusing same object, because it works
 	cols, vals, err = pgkit.Map(rec)
 	assert.NoError(t, err)
+	insertq, args, err = DB.SQL.Insert("accounts").Columns(cols...).Values(vals...).ToSql()
+	assert.NoError(t, err)
+	_, err = DB.Conn.Exec(context.Background(), insertq, args...)
+	assert.NoError(t, err)
 }
 
 func TestSugarQueryWithNoResults(t *testing.T) {
@@ -213,13 +218,13 @@ func TestQueryWithNoResults(t *testing.T) {
 	}
 }
 
-// func TestInsertRowWithBigInt(t *testing.T) {
-// 	s := &Stat{Key: "count", Num: big.NewInt(2)}
+func TestInsertRowWithBigInt(t *testing.T) {
+	s := &Stat{Key: "count", Num: dbtype.NewBigInt(2)}
 
-// 	q := DB.SQL.InsertRecord(s, "stats")
-// 	_, err := DB.Query.Exec(context.Background(), q)
-// 	assert.NoError(t, err)
-// }
+	q := DB.SQL.InsertRecord(s, "stats")
+	_, err := DB.Query.Exec(context.Background(), q)
+	assert.NoError(t, err)
+}
 
 // TODO: test jsonb, and big.Int custom types.....
 
