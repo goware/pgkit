@@ -3,12 +3,16 @@ package pgkit
 import (
 	"fmt"
 	"reflect"
+	"sort"
+	"strings"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/goware/pgkit/internal/reflectx"
 )
 
-var Mapper = reflectx.NewMapper("db")
+const dbTagName = "db"
+
+var Mapper = reflectx.NewMapper(dbTagName)
 
 var (
 	defaultMapOptions = MapOptions{
@@ -68,10 +72,16 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 
 		for _, fi := range fieldMap {
 
+			// Skip any fields which do not specify the `db:".."` tag
+			if strings.Index(string(fi.Field.Tag), dbTagName) < 0 {
+				continue
+			}
+
 			// Field options
 			_, tagOmitEmpty := fi.Options["omitempty"]
 
 			fld := reflectx.FieldByIndexesReadOnly(recordV, fi.Index)
+
 			if fld.Kind() == reflect.Ptr && fld.IsNil() {
 				if tagOmitEmpty && !options.IncludeNil {
 					continue
@@ -108,10 +118,11 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 			}
 
 			fv.fields = append(fv.fields, fi.Name)
-			v, err := marshal(value)
-			if err != nil {
-				return nil, nil, err
-			}
+			// v, err := marshal(value)
+			// if err != nil {
+			// 	return nil, nil, err
+			// }
+			v := value
 			if isZero && tagOmitEmpty {
 				v = sqlDefault
 			}
@@ -128,10 +139,11 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 			valv := recordV.MapIndex(keyV)
 			fv.fields[i] = fmt.Sprintf("%v", keyV.Interface())
 
-			v, err := marshal(valv.Interface())
-			if err != nil {
-				return nil, nil, err
-			}
+			// v, err := marshal(valv.Interface())
+			// if err != nil {
+			// 	return nil, nil, err
+			// }
+			v := valv
 
 			fv.values[i] = v
 		}
@@ -140,8 +152,7 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 		return nil, nil, ErrExpectingPointerToEitherMapOrStruct
 	}
 
-	// TODO: sort or not..? it normalizes the order, but is there a benefit?
-	// sort.Sort(&fv)
+	sort.Sort(&fv)
 
 	return fv.fields, fv.values, nil
 }
@@ -168,14 +179,14 @@ type hasIsZero interface {
 	IsZero() bool
 }
 
-func marshal(v interface{}) (interface{}, error) {
-	// TODO: review db.Marshaler, we may want to keep this too, etc......
+// func marshal(v interface{}) (interface{}, error) {
+// 	// TODO: review db.Marshaler, we may want to keep this too, etc......
 
-	// if m, isMarshaler := v.(db.Marshaler); isMarshaler {
-	// 	var err error
-	// 	if v, err = m.MarshalDB(); err != nil {
-	// 		return nil, err
-	// 	}
-	// }
-	return v, nil
-}
+// 	// if m, isMarshaler := v.(db.Marshaler); isMarshaler {
+// 	// 	var err error
+// 	// 	if v, err = m.MarshalDB(); err != nil {
+// 	// 		return nil, err
+// 	// 	}
+// 	// }
+// 	return v, nil
+// }

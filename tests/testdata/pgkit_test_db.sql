@@ -22,5 +22,11 @@ CREATE TABLE logs (
 CREATE TABLE stats (
   id SERIAL PRIMARY KEY,
   key VARCHAR(80),
-  num numeric(78,0) -- representing a *big.Int runtime type
+  num NUMERIC(78,0) -- representing a *big.Int runtime type
+);
+
+CREATE TABLE articles (
+  id SERIAL PRIMARY KEY,
+  author VARCHAR(80),
+  content JSONB
 );

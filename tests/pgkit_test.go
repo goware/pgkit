@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	mrand "math/rand"
+	"sort"
 	"testing"
 	"time"
 
@@ -125,6 +126,26 @@ func TestSugarInsertAndSelectRecords(t *testing.T) {
 	assert.Len(t, accounts, 1)
 	assert.True(t, accounts[0].ID != 0)
 	assert.Equal(t, "joe", accounts[0].Name)
+}
+
+func TestSugarInsertAndSelectRecordsReturningID(t *testing.T) {
+	truncateTable(t, "accounts")
+
+	// Insert
+	rec := &Account{
+		Name:     "joe",
+		Disabled: true,
+	}
+
+	err := DB.Query.QueryRow(context.Background(), DB.SQL.InsertRecord(rec).Suffix(`RETURNING "id"`)).Scan(&rec.ID)
+	assert.NoError(t, err)
+	assert.True(t, rec.ID > 0)
+
+	// Select one -- into object
+	account := &Account{}
+	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), account)
+	assert.NoError(t, err)
+	assert.Equal(t, "joe", account.Name)
 }
 
 // TestInsertAndSelectRecords is a more verbose version of TestSugarInsertAndSelectRecords
@@ -259,6 +280,37 @@ func TestRecordsWithJSONB(t *testing.T) {
 	assert.Equal(t, "Toronto", lout.Etc["place"])
 }
 
+func TestRecordsWithJSONStruct(t *testing.T) {
+	truncateTable(t, "articles")
+
+	article := &Article{
+		Author: "Gary",
+		Content: Content{
+			Title: "How to cook pizza",
+			Body:  "flour+water+salt+yeast+cheese",
+		},
+	}
+
+	// Assert record mapping for nested jsonb struct
+	cols, _, err := pgkit.Map(article)
+	assert.NoError(t, err)
+	sort.Sort(sort.StringSlice(cols))
+	assert.Equal(t, []string{"author", "content"}, cols)
+
+	// Insert record
+	q1 := DB.SQL.InsertRecord(article, "articles")
+	_, err = DB.Query.Exec(context.Background(), q1)
+	assert.NoError(t, err)
+
+	// Select record
+	aout := &Article{}
+	q2 := DB.SQL.Select("*").From("articles")
+	err = DB.Query.GetOne(context.Background(), q2, aout)
+	assert.NoError(t, err)
+	assert.Equal(t, "Gary", aout.Author)
+	assert.Equal(t, "How to cook pizza", aout.Content.Title)
+}
+
 func TestRowsWithBigInt(t *testing.T) {
 	truncateTable(t, "stats")
 
@@ -298,6 +350,96 @@ func TestRowsWithBigInt(t *testing.T) {
 	}
 }
 
-// TODO: transactions.. ugh......
+func TestSugarInsertAndSelectMultipleRecords(t *testing.T) {
+	truncateTable(t, "accounts")
+
+	names := []string{"mary", "gary", "larry"}
+
+	records := []*Account{}
+	for _, n := range names {
+		records = append(records, &Account{Name: n})
+	}
+
+	// Insert
+	q1 := DB.SQL.InsertRecords(records) //, "accounts")
+	_, err := DB.Query.Exec(context.Background(), q1)
+	assert.NoError(t, err)
+
+	// Select all
+	var accounts []*Account
+	q2 := DB.SQL.Select("*").From("accounts").OrderBy("name")
+	err = DB.Query.GetAll(context.Background(), q2, &accounts)
+	assert.NoError(t, err)
+	assert.Len(t, accounts, 3)
+	assert.Equal(t, "gary", accounts[0].Name)
+	assert.Equal(t, "larry", accounts[1].Name)
+	assert.Equal(t, "mary", accounts[2].Name)
+}
+
+func TestSugarUpdateRecord(t *testing.T) {
+	truncateTable(t, "accounts")
+
+	// Insert
+	account := &Account{Name: "julia"}
+	_, err := DB.Query.Exec(context.Background(), DB.SQL.InsertRecord(account))
+	assert.NoError(t, err)
+
+	// Query
+	accountResp := &Account{}
+	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), accountResp)
+	assert.NoError(t, err)
+	assert.Equal(t, "julia", accountResp.Name)
+	assert.True(t, accountResp.ID != 0)
+
+	// Update
+	accountResp.Name = "JUL14"
+	_, err = DB.Query.Exec(context.Background(), DB.SQL.UpdateRecord(accountResp, sq.Eq{"id": accountResp.ID})) //, "accounts"))
+	assert.NoError(t, err)
+
+	// Query
+	accountResp2 := &Account{}
+	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), accountResp2)
+	assert.NoError(t, err)
+	assert.Equal(t, "JUL14", accountResp.Name)
+	assert.True(t, accountResp2.ID != 0)
+	assert.True(t, accountResp2.ID == accountResp.ID)
+	assert.True(t, accountResp2.CreatedAt == accountResp.CreatedAt)
+}
+
+func TestSugarUpdateRecordColumns(t *testing.T) {
+	truncateTable(t, "accounts")
+
+	// Insert
+	account := &Account{Name: "peter"}
+	_, err := DB.Query.Exec(context.Background(), DB.SQL.InsertRecord(account))
+	assert.NoError(t, err)
+
+	// TODO: lets add returning id, etc...
+
+	// Query
+	accountResp := &Account{}
+	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), accountResp)
+	assert.NoError(t, err)
+	assert.Equal(t, "peter", accountResp.Name)
+	assert.True(t, accountResp.ID != 0)
+	assert.False(t, accountResp.Disabled)
+
+	// Update
+	accountResp.Name = "p3t3r"
+	accountResp.Disabled = true
+	_, err = DB.Query.Exec(context.Background(), DB.SQL.UpdateRecordColumns(accountResp, sq.Eq{"id": accountResp.ID}, []string{"disabled"})) //, "accounts"))
+	assert.NoError(t, err)
+
+	// Query
+	accountResp2 := &Account{}
+	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), accountResp2)
+	assert.NoError(t, err)
+	assert.Equal(t, "peter", accountResp2.Name) // should not have changed, expect as previous was recorded
+	assert.True(t, accountResp2.Disabled)
+	assert.True(t, accountResp2.ID != 0)
+	assert.True(t, accountResp2.ID == accountResp.ID)
+}
+
+// TODO: transactions..
 
 // TODO: batch support, right in here..? kinda makes sense..
