@@ -166,7 +166,6 @@ func (s *StatementBuilder) InsertRecord(record interface{}, optTableName ...stri
 	return InsertBuilder{InsertBuilder: insert.Into(tableName).Columns(cols...).Values(vals...)}
 }
 
-// TODO: rename to InsertRecordBatch ..?
 func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName ...string) InsertBuilder {
 	insert := sq.InsertBuilder(s.StatementBuilderType)
 
