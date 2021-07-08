@@ -3,6 +3,7 @@ package pgkit
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/georgysavva/scany/pgxscan"
@@ -75,12 +76,22 @@ type Sqlizer interface {
 	ToSql() (string, []interface{}, error)
 }
 
+type hasErr interface {
+	Err() error
+}
+
 type Querier struct {
 	DB  *DB
 	SQL *StatementBuilder
 }
 
 func (q *Querier) Exec(ctx context.Context, query Sqlizer) (pgconn.CommandTag, error) {
+	// check for query errors
+	if getErr, ok := query.(hasErr); ok && getErr.Err() != nil {
+		return nil, getErr.Err()
+	}
+
+	// get connection, sqlize, and execute
 	conn := q.DB.Conn
 	sql, args, err := query.ToSql()
 	if err != nil {
@@ -90,6 +101,12 @@ func (q *Querier) Exec(ctx context.Context, query Sqlizer) (pgconn.CommandTag, e
 }
 
 func (q *Querier) QueryRows(ctx context.Context, query Sqlizer) (pgx.Rows, error) {
+	// check for query errors
+	if getErr, ok := query.(hasErr); ok && getErr.Err() != nil {
+		return nil, getErr.Err()
+	}
+
+	// get connection, sqlize, and query
 	conn := q.DB.Conn
 	sql, args, err := query.ToSql()
 	if err != nil {
@@ -99,6 +116,12 @@ func (q *Querier) QueryRows(ctx context.Context, query Sqlizer) (pgx.Rows, error
 }
 
 func (q *Querier) QueryRow(ctx context.Context, query Sqlizer) pgx.Row {
+	// check for query errors
+	if getErr, ok := query.(hasErr); ok && getErr.Err() != nil {
+		return errRow{getErr.Err()}
+	}
+
+	// get connection, sqlize, and query
 	conn := q.DB.Conn
 	sql, args, err := query.ToSql()
 	if err != nil {
@@ -123,7 +146,7 @@ func (q *Querier) GetOne(ctx context.Context, query sq.SelectBuilder, dest inter
 	return pgxscan.ScanOne(dest, rows)
 }
 
-type HasDBTableName interface {
+type hasDBTableName interface {
 	DBTableName() string
 }
 
@@ -131,26 +154,75 @@ type StatementBuilder struct {
 	sq.StatementBuilderType
 }
 
-func (s *StatementBuilder) InsertRecord(record interface{}, optTableName ...string) sq.InsertBuilder {
+func (s *StatementBuilder) InsertRecord(record interface{}, optTableName ...string) InsertBuilder {
 	tableName := ""
 	if len(optTableName) > 0 {
 		tableName = optTableName[0]
 	} else {
-		if getTableName, ok := record.(HasDBTableName); ok {
+		if getTableName, ok := record.(hasDBTableName); ok {
 			tableName = getTableName.DBTableName()
 		}
 	}
 
+	insert := sq.InsertBuilder(s.StatementBuilderType)
+
 	cols, vals, err := Map(record)
 	if err != nil {
-		// return insert statement without setting the record data
-		// TODO: we need to record this error somehow though, likely log, or some error thing
-		return s.StatementBuilderType.Insert(tableName)
+		return InsertBuilder{InsertBuilder: insert, err: err}
 	}
 
-	return s.StatementBuilderType.Insert(tableName).Columns(cols...).Values(vals...)
+	return InsertBuilder{InsertBuilder: insert.Into(tableName).Columns(cols...).Values(vals...)}
 }
 
-// TODO: add InsertRecords
+func (s StatementBuilder) InsertRecords(records interface{}, optTableName ...string) InsertBuilder {
+	insert := sq.InsertBuilder(s.StatementBuilderType)
+
+	v := reflect.ValueOf(records)
+	if v.Kind() != reflect.Slice {
+		return InsertBuilder{InsertBuilder: insert, err: fmt.Errorf("records must be a slice type")}
+	}
+
+	if v.Len() == 0 {
+		return InsertBuilder{InsertBuilder: insert, err: fmt.Errorf("records slice is empty")}
+	}
+
+	tableName := ""
+	if len(optTableName) > 0 {
+		tableName = optTableName[0]
+	}
+
+	for i := 0; i < v.Len(); i++ {
+		r := v.Index(i)
+		record := r.Interface()
+
+		if i == 0 && tableName == "" {
+			if getTableName, ok := record.(hasDBTableName); ok {
+				tableName = getTableName.DBTableName()
+			}
+		}
+
+		cols, vals, err := Map(record)
+		if err != nil {
+			return InsertBuilder{InsertBuilder: insert, err: err}
+		}
+
+		if i == 0 {
+			insert = insert.Columns(cols...).Values(vals...)
+		} else {
+			insert = insert.Values(vals...)
+		}
+	}
+
+	return InsertBuilder{InsertBuilder: insert.Into(tableName)}
+}
 
 // TODO: add UpdateRecord and UpdateRecords ...
+
+type InsertBuilder struct {
+	sq.InsertBuilder
+	err error
+}
+
+func (b InsertBuilder) Err() error {
+	return b.err
+}

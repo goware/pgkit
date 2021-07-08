@@ -3,6 +3,7 @@ package pgkit
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
@@ -151,8 +152,7 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 		return nil, nil, ErrExpectingPointerToEitherMapOrStruct
 	}
 
-	// TODO: sort or not..? it normalizes the order, but is there a benefit?
-	// sort.Sort(&fv)
+	sort.Sort(&fv)
 
 	return fv.fields, fv.values, nil
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	mrand "math/rand"
+	"sort"
 	"testing"
 	"time"
 
@@ -273,6 +274,7 @@ func TestRecordsWithJSONStruct(t *testing.T) {
 	// Assert record mapping for nested jsonb struct
 	cols, _, err := pgkit.Map(article)
 	assert.NoError(t, err)
+	sort.Sort(sort.StringSlice(cols))
 	assert.Equal(t, []string{"author", "content"}, cols)
 
 	// Insert record
@@ -326,6 +328,32 @@ func TestRowsWithBigInt(t *testing.T) {
 		assert.Equal(t, "count2", sout.Key)
 		assert.True(t, sout.Num.String() == "12323942398472837489234")
 	}
+}
+
+func TestSugarInsertAndSelectMultipleRecords(t *testing.T) {
+	truncateTable(t, "accounts")
+
+	names := []string{"mary", "gary", "larry"}
+
+	records := []*Account{}
+	for _, n := range names {
+		records = append(records, &Account{Name: n})
+	}
+
+	// Insert
+	q1 := DB.SQL.InsertRecords(records) //, "accounts")
+	_, err := DB.Query.Exec(context.Background(), q1)
+	assert.NoError(t, err)
+
+	// Select all
+	var accounts []*Account
+	q2 := DB.SQL.Select("*").From("accounts").OrderBy("name")
+	err = DB.Query.GetAll(context.Background(), q2, &accounts)
+	assert.NoError(t, err)
+	assert.Len(t, accounts, 3)
+	assert.Equal(t, "gary", accounts[0].Name)
+	assert.Equal(t, "larry", accounts[1].Name)
+	assert.Equal(t, "mary", accounts[2].Name)
 }
 
 // TODO: transactions..
