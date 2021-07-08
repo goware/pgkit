@@ -2,6 +2,7 @@ package pgkit
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"reflect"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/jackc/pgx/v4/stdlib"
 )
 
 type DB struct {
@@ -30,15 +32,7 @@ type Config struct {
 }
 
 func Connect(appName string, cfg Config) (*DB, error) {
-	uri := fmt.Sprintf("postgres://%s:%s@%s/%s?application_name=%v",
-		cfg.Username,
-		cfg.Password,
-		cfg.Host,
-		cfg.Database,
-		appName,
-	)
-
-	pgxCfg, err := pgxpool.ParseConfig(uri)
+	poolCfg, err := pgxpool.ParseConfig(getConnectURI(appName, cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -50,22 +44,22 @@ func Connect(appName string, cfg Config) (*DB, error) {
 		cfg.ConnMaxLifetime = "1h"
 	}
 
-	pgxCfg.MaxConns = cfg.MaxConns
-	pgxCfg.MinConns = cfg.MinConns
+	poolCfg.MaxConns = cfg.MaxConns
+	poolCfg.MinConns = cfg.MinConns
 
-	pgxCfg.MaxConnLifetime, err = time.ParseDuration(cfg.ConnMaxLifetime)
+	poolCfg.MaxConnLifetime, err = time.ParseDuration(cfg.ConnMaxLifetime)
 	if err != nil {
 		return nil, fmt.Errorf("config invalid conn_max_lifetime value: %w", err)
 	}
 
-	pgxCfg.MaxConnIdleTime = time.Minute * 30
+	poolCfg.MaxConnIdleTime = time.Minute * 30
 
-	pgxCfg.HealthCheckPeriod = time.Minute
+	poolCfg.HealthCheckPeriod = time.Minute
 
-	return ConnectWithPGXConfig(appName, pgxCfg)
+	return ConnectWithPGX(appName, poolCfg)
 }
 
-func ConnectWithPGXConfig(appName string, pgxConfig *pgxpool.Config) (*DB, error) {
+func ConnectWithPGX(appName string, pgxConfig *pgxpool.Config) (*DB, error) {
 	pool, err := pgxpool.ConnectConfig(context.Background(), pgxConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to db: %w", err)
@@ -79,6 +73,26 @@ func ConnectWithPGXConfig(appName string, pgxConfig *pgxpool.Config) (*DB, error
 	db.Query = &Querier{DB: db, SQL: db.SQL}
 
 	return db, nil
+}
+
+func ConnectWithStdlib(appName string, cfg Config) (*sql.DB, error) {
+	connCfg, err := pgx.ParseConfig(getConnectURI(appName, cfg))
+	if err != nil {
+		return nil, err
+	}
+
+	db := stdlib.OpenDB(*connCfg)
+	return db, nil
+}
+
+func getConnectURI(appName string, cfg Config) string {
+	return fmt.Sprintf("postgres://%s:%s@%s/%s?application_name=%v",
+		cfg.Username,
+		cfg.Password,
+		cfg.Host,
+		cfg.Database,
+		appName,
+	)
 }
 
 type Sqlizer interface {
