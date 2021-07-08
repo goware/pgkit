@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// BigInt runtime type for Postgres `numeric(78,0)`
 type BigInt big.Int
 
 func NewBigInt(n int64) BigInt {

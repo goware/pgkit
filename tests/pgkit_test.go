@@ -259,6 +259,36 @@ func TestRecordsWithJSONB(t *testing.T) {
 	assert.Equal(t, "Toronto", lout.Etc["place"])
 }
 
+func TestRecordsWithJSONStruct(t *testing.T) {
+	truncateTable(t, "articles")
+
+	article := &Article{
+		Author: "Gary",
+		Content: Content{
+			Title: "How to cook pizza",
+			Body:  "flour+water+salt+yeast+cheese",
+		},
+	}
+
+	// Assert record mapping for nested jsonb struct
+	cols, _, err := pgkit.Map(article)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"author", "content"}, cols)
+
+	// Insert record
+	q1 := DB.SQL.InsertRecord(article, "articles")
+	_, err = DB.Query.Exec(context.Background(), q1)
+	assert.NoError(t, err)
+
+	// Select record
+	aout := &Article{}
+	q2 := DB.SQL.Select("*").From("articles")
+	err = DB.Query.GetOne(context.Background(), q2, aout)
+	assert.NoError(t, err)
+	assert.Equal(t, "Gary", aout.Author)
+	assert.Equal(t, "How to cook pizza", aout.Content.Title)
+}
+
 func TestRowsWithBigInt(t *testing.T) {
 	truncateTable(t, "stats")
 
@@ -298,6 +328,6 @@ func TestRowsWithBigInt(t *testing.T) {
 	}
 }
 
-// TODO: transactions.. ugh......
+// TODO: transactions..
 
 // TODO: batch support, right in here..? kinda makes sense..

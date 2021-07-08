@@ -14,6 +14,7 @@ func truncateAllTables(t *testing.T) {
 	truncateTable(t, "reviews")
 	truncateTable(t, "logs")
 	truncateTable(t, "stats")
+	truncateTable(t, "articles")
 }
 
 func truncateTable(t *testing.T, tableName string) {
