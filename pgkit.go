@@ -174,7 +174,6 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 	if v.Kind() != reflect.Slice {
 		return InsertBuilder{InsertBuilder: insert, err: fmt.Errorf("records must be a slice type")}
 	}
-
 	if v.Len() == 0 {
 		return InsertBuilder{InsertBuilder: insert, err: fmt.Errorf("records slice is empty")}
 	}
@@ -185,8 +184,7 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 	}
 
 	for i := 0; i < v.Len(); i++ {
-		r := v.Index(i)
-		record := r.Interface()
+		record := v.Index(i).Interface()
 
 		if i == 0 && tableName == "" {
 			if getTableName, ok := record.(hasDBTableName); ok {
@@ -240,8 +238,6 @@ func (s StatementBuilder) UpdateRecordColumns(record interface{}, whereExpr sq.E
 
 	return UpdateBuilder{UpdateBuilder: update.Table(tableName).SetMap(valMap).Where(whereExpr)}
 }
-
-// TODO: add UpdateRecords and UpdateRecordsColumns ...
 
 type InsertBuilder struct {
 	sq.InsertBuilder
