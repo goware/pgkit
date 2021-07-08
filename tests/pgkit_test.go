@@ -27,10 +27,11 @@ func init() {
 
 	var err error
 	DB, err = pgkit.Connect("pgkit_test", pgkit.Config{
-		Database: "pgkit_test",
-		Hosts:    []string{"localhost"},
-		Username: "postgres",
-		Password: "postgres",
+		Database:        "pgkit_test",
+		Host:            "localhost",
+		Username:        "postgres",
+		Password:        "postgres",
+		ConnMaxLifetime: "1h",
 	})
 	if err != nil {
 		log.Fatal(fmt.Errorf("failed to connect db: %w", err))
@@ -414,8 +415,6 @@ func TestSugarUpdateRecordColumns(t *testing.T) {
 	_, err := DB.Query.Exec(context.Background(), DB.SQL.InsertRecord(account))
 	assert.NoError(t, err)
 
-	// TODO: lets add returning id, etc...
-
 	// Query
 	accountResp := &Account{}
 	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), accountResp)
@@ -440,6 +439,21 @@ func TestSugarUpdateRecordColumns(t *testing.T) {
 	assert.True(t, accountResp2.ID == accountResp.ID)
 }
 
-// TODO: transactions..
+func TestTransaction(t *testing.T) {
+	truncateTable(t, "accounts")
 
-// TODO: batch support, right in here..? kinda makes sense..
+	DB.Conn.BeginFunc(context.Background(), func(tx pgx.Tx) error {
+
+		// .......
+
+		return nil
+	})
+
+	// TODO ..
+
+	// create 2 records, and then lets roll back.. ensure nothing was commited..
+
+	// then, do another txn, insert 2 diff txns, lets commit, then confirm,..
+}
+
+// TODO: batch support .. with test

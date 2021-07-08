@@ -11,7 +11,7 @@ type Account struct {
 	ID        int64     `db:"id,omitempty"`
 	Name      string    `db:"name"`
 	Disabled  bool      `db:"disabled"`
-	CreatedAt time.Time `db:"created_at,omitempty"`
+	CreatedAt time.Time `db:"created_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
 }
 
 func (a *Account) DBTableName() string {
@@ -22,7 +22,7 @@ type Review struct {
 	ID        int64     `db:"id,omitempty"`
 	Name      string    `db:"name"`
 	Comments  string    `db:"comments"`
-	CreatedAt time.Time `db:"created_at"`
+	CreatedAt time.Time `db:"created_at"` // if unset, will store Go zero-value
 }
 
 type Log struct {
@@ -34,7 +34,7 @@ type Log struct {
 type Stat struct {
 	ID  int64         `db:"id,omitempty"`
 	Key string        `db:"key"`
-	Num dbtype.BigInt `db:"num"` // using NUMERIC(78,0) postgres datatype
+	Num dbtype.BigInt `db:"big_num"` // using NUMERIC(78,0) postgres datatype
 }
 
 type Article struct {
