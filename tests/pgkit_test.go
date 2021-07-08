@@ -12,6 +12,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/georgysavva/scany/pgxscan"
 	"github.com/goware/pgkit"
+	"github.com/goware/pgkit/dbtype"
 	"github.com/jackc/pgx/v4"
 	"github.com/stretchr/testify/assert"
 )
@@ -170,6 +171,10 @@ func TestInsertAndSelectRecords(t *testing.T) {
 	rec.Name = "joe2" // reusing same object, because it works
 	cols, vals, err = pgkit.Map(rec)
 	assert.NoError(t, err)
+	insertq, args, err = DB.SQL.Insert("accounts").Columns(cols...).Values(vals...).ToSql()
+	assert.NoError(t, err)
+	_, err = DB.Conn.Exec(context.Background(), insertq, args...)
+	assert.NoError(t, err)
 }
 
 func TestSugarQueryWithNoResults(t *testing.T) {
@@ -213,15 +218,85 @@ func TestQueryWithNoResults(t *testing.T) {
 	}
 }
 
-// func TestInsertRowWithBigInt(t *testing.T) {
-// 	s := &Stat{Key: "count", Num: big.NewInt(2)}
+func TestRowsWithJSONB(t *testing.T) {
+	truncateTable(t, "logs")
 
-// 	q := DB.SQL.InsertRecord(s, "stats")
-// 	_, err := DB.Query.Exec(context.Background(), q)
-// 	assert.NoError(t, err)
-// }
+	etc := dbtype.JSONBMap{"a": 1}
 
-// TODO: test jsonb, and big.Int custom types.....
+	// Insert
+	q1 := DB.SQL.Insert("logs").Columns("message", "etc").Values("hi", etc)
+	_, err := DB.Query.Exec(context.Background(), q1)
+	assert.NoError(t, err)
+
+	// Select
+	var lout Log
+	q2 := DB.SQL.Select("*").From("logs")
+	err = DB.Query.GetOne(context.Background(), q2, &lout)
+	assert.NoError(t, err)
+	assert.Equal(t, "hi", lout.Message)
+	assert.Equal(t, float64(1), lout.Etc["a"]) // json will convert numbers to float64
+}
+
+func TestRecordsWithJSONB(t *testing.T) {
+	truncateTable(t, "logs")
+
+	log := &Log{
+		Message: "recording",
+		Etc:     dbtype.JSONBMap{"place": "Toronto"},
+	}
+
+	// Insert
+	q1 := DB.SQL.InsertRecord(log, "logs")
+	_, err := DB.Query.Exec(context.Background(), q1)
+	assert.NoError(t, err)
+
+	// Select
+	var lout Log
+	q2 := DB.SQL.Select("*").From("logs").Limit(1)
+	err = DB.Query.GetOne(context.Background(), q2, &lout)
+	assert.NoError(t, err)
+	assert.Equal(t, "recording", lout.Message)
+	assert.Equal(t, "Toronto", lout.Etc["place"])
+}
+
+func TestRowsWithBigInt(t *testing.T) {
+	truncateTable(t, "stats")
+
+	{
+		stat := &Stat{Key: "count", Num: dbtype.NewBigInt(2)}
+
+		// Insert
+		q1 := DB.SQL.InsertRecord(stat, "stats")
+		_, err := DB.Query.Exec(context.Background(), q1)
+		assert.NoError(t, err)
+
+		// Select
+		var sout Stat
+		q2 := DB.SQL.Select("*").From("stats").Where(sq.Eq{"key": "count"})
+		err = DB.Query.GetOne(context.Background(), q2, &sout)
+		assert.NoError(t, err)
+		assert.Equal(t, "count", sout.Key)
+		assert.True(t, sout.Num.Int64() == 2)
+	}
+
+	// another one, big number this time
+	{
+		stat := &Stat{Key: "count2", Num: dbtype.NewBigIntFromString("12323942398472837489234", 0)}
+
+		// Insert
+		q1 := DB.SQL.InsertRecord(stat, "stats")
+		_, err := DB.Query.Exec(context.Background(), q1)
+		assert.NoError(t, err)
+
+		// Select
+		var sout Stat
+		q2 := DB.SQL.Select("*").From("stats").Where(sq.Eq{"key": "count2"})
+		err = DB.Query.GetOne(context.Background(), q2, &sout)
+		assert.NoError(t, err)
+		assert.Equal(t, "count2", sout.Key)
+		assert.True(t, sout.Num.String() == "12323942398472837489234")
+	}
+}
 
 // TODO: transactions.. ugh......
 

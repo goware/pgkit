@@ -22,5 +22,5 @@ CREATE TABLE logs (
 CREATE TABLE stats (
   id SERIAL PRIMARY KEY,
   key VARCHAR(80),
-  num BIGINT
+  num numeric(78,0) -- representing a *big.Int runtime type
 );

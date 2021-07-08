@@ -1,10 +1,9 @@
 package pgkit_test
 
 import (
-	"math/big"
 	"time"
 
-	"github.com/jackc/pgtype"
+	"github.com/goware/pgkit/dbtype"
 )
 
 type Account struct {
@@ -22,15 +21,15 @@ type Review struct {
 }
 
 type Log struct {
-	ID      int64        `db:"id,omitempty"`
-	Message string       `db:"message"`
-	Etc     pgtype.JSONB `db:"etc"`
+	ID      int64           `db:"id,omitempty"`
+	Message string          `db:"message"`
+	Etc     dbtype.JSONBMap `db:"etc"`
 }
 
 type Stat struct {
-	ID  int64    `db:"id,omitempty"`
-	Key string   `db:"key"`
-	Num *big.Int `db:"num"`
+	ID  int64         `db:"id,omitempty"`
+	Key string        `db:"key"`
+	Num dbtype.BigInt `db:"num"`
 }
 
 func (a *Account) DBTableName() string {
