@@ -107,7 +107,7 @@ func (q *Querier) QueryRow(ctx context.Context, query Sqlizer) pgx.Row {
 	return conn.QueryRow(ctx, sql, args...)
 }
 
-func (q *Querier) GetAll(ctx context.Context, query Sqlizer, dest interface{}) error {
+func (q *Querier) GetAll(ctx context.Context, query sq.SelectBuilder, dest interface{}) error {
 	rows, err := q.QueryRows(ctx, query)
 	if err != nil {
 		return err
@@ -115,8 +115,8 @@ func (q *Querier) GetAll(ctx context.Context, query Sqlizer, dest interface{}) e
 	return pgxscan.ScanAll(dest, rows)
 }
 
-func (q *Querier) GetOne(ctx context.Context, query Sqlizer, dest interface{}) error {
-	rows, err := q.QueryRows(ctx, query)
+func (q *Querier) GetOne(ctx context.Context, query sq.SelectBuilder, dest interface{}) error {
+	rows, err := q.QueryRows(ctx, query.Limit(1))
 	if err != nil {
 		return err
 	}

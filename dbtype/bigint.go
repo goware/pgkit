@@ -1,14 +1,22 @@
 package dbtype
 
 import (
+	"database/sql/driver"
 	"fmt"
 	"math/big"
+	"strings"
 )
 
 type BigInt big.Int
 
 func NewBigInt(n int64) BigInt {
 	b := big.NewInt(n)
+	return BigInt(*b)
+}
+
+func NewBigIntFromString(s string, base int) BigInt {
+	b := big.NewInt(0)
+	b, _ = b.SetString(s, base)
 	return BigInt(*b)
 }
 
@@ -41,6 +49,16 @@ func ToBigIntArrayFromStringArray(s []string, base int) ([]BigInt, error) {
 
 func ToBigIntFromInt64(n int64) BigInt {
 	return ToBigInt(big.NewInt(n))
+}
+
+func (b *BigInt) SetString(s string, base int) bool {
+	v := big.Int(*b)
+	n, ok := v.SetString(s, base)
+	if !ok {
+		return false
+	}
+	*b = BigInt(*n)
+	return true
 }
 
 func (b BigInt) String() string {
@@ -120,21 +138,14 @@ func (b *BigInt) UnmarshalJSON(text []byte) error {
 	return b.UnmarshalText(text)
 }
 
-/*
 func (b BigInt) Value() (driver.Value, error) {
 	return b.String(), nil
 }
 
 func (b *BigInt) Scan(src interface{}) error {
-	fmt.Println("weeeee......????????????????", src)
-
 	if src == nil {
 		return nil
 	}
-
-	spew.Dump(src)
-
-	fmt.Println("okay..?")
 
 	var svalue string
 	switch v := src.(type) {
@@ -145,29 +156,17 @@ func (b *BigInt) Scan(src interface{}) error {
 	default:
 		return fmt.Errorf("BigInt.Scan: unexpected type %T", src)
 	}
+
+	// pgx driver returns NeX where N is digits and X is exponent
+	parts := strings.SplitN(svalue, "e", 2)
+
 	var ok bool
 	i := &big.Int{}
-	i, ok = i.SetString(svalue, 10)
+	i, ok = i.SetString(parts[0], 10)
 	if !ok {
 		return fmt.Errorf("BigInt.Scan: failed to scan value %q", svalue)
 	}
 	*b = BigInt(*i)
-	return nil
-}
-*/
 
-func (dst *BigInt) Set(src interface{}) error {
-	if src == nil {
-		// *dst = Numeric{Status: pgtype.Null}
-		return nil
-	}
-
-	fmt.Println("======> src", src)
-	panic("set")
-	return nil
-}
-
-func (b BigInt) Get() interface{} {
-	panic("get")
 	return nil
 }
