@@ -209,40 +209,36 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 	return InsertBuilder{InsertBuilder: insert.Into(tableName)}
 }
 
-func (s StatementBuilder) UpdateRecord(record interface{}, whereExpr sq.Eq, optTableName ...string) sq.UpdateBuilder {
+func (s StatementBuilder) UpdateRecord(record interface{}, whereExpr sq.Eq, optTableName ...string) UpdateBuilder {
 	tableName := getTableName(record, optTableName...)
+	update := sq.UpdateBuilder(s.StatementBuilderType)
 
 	cols, vals, err := Map(record)
 	if err != nil {
-		// TODO .....
-		panic(err)
+		return UpdateBuilder{UpdateBuilder: update, err: err}
 	}
-
 	valMap, err := createMap(cols, vals, nil)
 	if err != nil {
-		// TODO ..
-		panic(err)
+		return UpdateBuilder{UpdateBuilder: update, err: err}
 	}
 
-	return sq.UpdateBuilder(s.StatementBuilderType).Table(tableName).SetMap(valMap).Where(whereExpr)
+	return UpdateBuilder{UpdateBuilder: update.Table(tableName).SetMap(valMap).Where(whereExpr)}
 }
 
-func (s StatementBuilder) UpdateRecordColumns(record interface{}, whereExpr sq.Eq, filterCols []string, optTableName ...string) sq.UpdateBuilder {
+func (s StatementBuilder) UpdateRecordColumns(record interface{}, whereExpr sq.Eq, filterCols []string, optTableName ...string) UpdateBuilder {
 	tableName := getTableName(record, optTableName...)
+	update := sq.UpdateBuilder(s.StatementBuilderType)
 
 	cols, vals, err := Map(record)
 	if err != nil {
-		// TODO .....
-		panic(err)
+		return UpdateBuilder{UpdateBuilder: update, err: err}
 	}
-
 	valMap, err := createMap(cols, vals, filterCols)
 	if err != nil {
-		// TODO ..
-		panic(err)
+		return UpdateBuilder{UpdateBuilder: update, err: err}
 	}
 
-	return sq.UpdateBuilder(s.StatementBuilderType).Table(tableName).SetMap(valMap).Where(whereExpr)
+	return UpdateBuilder{UpdateBuilder: update.Table(tableName).SetMap(valMap).Where(whereExpr)}
 }
 
 // TODO: add UpdateRecords and UpdateRecordsColumns ...
