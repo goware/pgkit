@@ -128,6 +128,26 @@ func TestSugarInsertAndSelectRecords(t *testing.T) {
 	assert.Equal(t, "joe", accounts[0].Name)
 }
 
+func TestSugarInsertAndSelectRecordsReturningID(t *testing.T) {
+	truncateTable(t, "accounts")
+
+	// Insert
+	rec := &Account{
+		Name:     "joe",
+		Disabled: true,
+	}
+
+	err := DB.Query.QueryRow(context.Background(), DB.SQL.InsertRecord(rec).Suffix(`RETURNING "id"`)).Scan(&rec.ID)
+	assert.NoError(t, err)
+	assert.True(t, rec.ID > 0)
+
+	// Select one -- into object
+	account := &Account{}
+	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), account)
+	assert.NoError(t, err)
+	assert.Equal(t, "joe", account.Name)
+}
+
 // TestInsertAndSelectRecords is a more verbose version of TestSugarInsertAndSelectRecords
 func TestInsertAndSelectRecords(t *testing.T) {
 	truncateTable(t, "accounts")
@@ -354,6 +374,70 @@ func TestSugarInsertAndSelectMultipleRecords(t *testing.T) {
 	assert.Equal(t, "gary", accounts[0].Name)
 	assert.Equal(t, "larry", accounts[1].Name)
 	assert.Equal(t, "mary", accounts[2].Name)
+}
+
+func TestSugarUpdateRecord(t *testing.T) {
+	truncateTable(t, "accounts")
+
+	// Insert
+	account := &Account{Name: "julia"}
+	_, err := DB.Query.Exec(context.Background(), DB.SQL.InsertRecord(account))
+	assert.NoError(t, err)
+
+	// Query
+	accountResp := &Account{}
+	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), accountResp)
+	assert.NoError(t, err)
+	assert.Equal(t, "julia", accountResp.Name)
+	assert.True(t, accountResp.ID != 0)
+
+	// Update
+	accountResp.Name = "JUL14"
+	_, err = DB.Query.Exec(context.Background(), DB.SQL.UpdateRecord(accountResp, sq.Eq{"id": accountResp.ID})) //, "accounts"))
+	assert.NoError(t, err)
+
+	// Query
+	accountResp2 := &Account{}
+	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), accountResp2)
+	assert.NoError(t, err)
+	assert.Equal(t, "JUL14", accountResp.Name)
+	assert.True(t, accountResp2.ID != 0)
+	assert.True(t, accountResp2.ID == accountResp.ID)
+	assert.True(t, accountResp2.CreatedAt == accountResp.CreatedAt)
+}
+
+func TestSugarUpdateRecordColumns(t *testing.T) {
+	truncateTable(t, "accounts")
+
+	// Insert
+	account := &Account{Name: "peter"}
+	_, err := DB.Query.Exec(context.Background(), DB.SQL.InsertRecord(account))
+	assert.NoError(t, err)
+
+	// TODO: lets add returning id, etc...
+
+	// Query
+	accountResp := &Account{}
+	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), accountResp)
+	assert.NoError(t, err)
+	assert.Equal(t, "peter", accountResp.Name)
+	assert.True(t, accountResp.ID != 0)
+	assert.False(t, accountResp.Disabled)
+
+	// Update
+	accountResp.Name = "p3t3r"
+	accountResp.Disabled = true
+	_, err = DB.Query.Exec(context.Background(), DB.SQL.UpdateRecordColumns(accountResp, sq.Eq{"id": accountResp.ID}, []string{"disabled"})) //, "accounts"))
+	assert.NoError(t, err)
+
+	// Query
+	accountResp2 := &Account{}
+	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), accountResp2)
+	assert.NoError(t, err)
+	assert.Equal(t, "peter", accountResp2.Name) // should not have changed, expect as previous was recorded
+	assert.True(t, accountResp2.Disabled)
+	assert.True(t, accountResp2.ID != 0)
+	assert.True(t, accountResp2.ID == accountResp.ID)
 }
 
 // TODO: transactions..

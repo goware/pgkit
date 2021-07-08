@@ -155,15 +155,7 @@ type StatementBuilder struct {
 }
 
 func (s *StatementBuilder) InsertRecord(record interface{}, optTableName ...string) InsertBuilder {
-	tableName := ""
-	if len(optTableName) > 0 {
-		tableName = optTableName[0]
-	} else {
-		if getTableName, ok := record.(hasDBTableName); ok {
-			tableName = getTableName.DBTableName()
-		}
-	}
-
+	tableName := getTableName(record, optTableName...)
 	insert := sq.InsertBuilder(s.StatementBuilderType)
 
 	cols, vals, err := Map(record)
@@ -174,10 +166,11 @@ func (s *StatementBuilder) InsertRecord(record interface{}, optTableName ...stri
 	return InsertBuilder{InsertBuilder: insert.Into(tableName).Columns(cols...).Values(vals...)}
 }
 
-func (s StatementBuilder) InsertRecords(records interface{}, optTableName ...string) InsertBuilder {
+// TODO: rename to InsertRecordBatch ..?
+func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName ...string) InsertBuilder {
 	insert := sq.InsertBuilder(s.StatementBuilderType)
 
-	v := reflect.ValueOf(records)
+	v := reflect.ValueOf(recordsSlice)
 	if v.Kind() != reflect.Slice {
 		return InsertBuilder{InsertBuilder: insert, err: fmt.Errorf("records must be a slice type")}
 	}
@@ -216,13 +209,89 @@ func (s StatementBuilder) InsertRecords(records interface{}, optTableName ...str
 	return InsertBuilder{InsertBuilder: insert.Into(tableName)}
 }
 
-// TODO: add UpdateRecord and UpdateRecords ...
+func (s StatementBuilder) UpdateRecord(record interface{}, whereExpr sq.Eq, optTableName ...string) sq.UpdateBuilder {
+	tableName := getTableName(record, optTableName...)
+
+	cols, vals, err := Map(record)
+	if err != nil {
+		// TODO .....
+		panic(err)
+	}
+
+	valMap, err := createMap(cols, vals, nil)
+	if err != nil {
+		// TODO ..
+		panic(err)
+	}
+
+	return sq.UpdateBuilder(s.StatementBuilderType).Table(tableName).SetMap(valMap).Where(whereExpr)
+}
+
+func (s StatementBuilder) UpdateRecordColumns(record interface{}, whereExpr sq.Eq, filterCols []string, optTableName ...string) sq.UpdateBuilder {
+	tableName := getTableName(record, optTableName...)
+
+	cols, vals, err := Map(record)
+	if err != nil {
+		// TODO .....
+		panic(err)
+	}
+
+	valMap, err := createMap(cols, vals, filterCols)
+	if err != nil {
+		// TODO ..
+		panic(err)
+	}
+
+	return sq.UpdateBuilder(s.StatementBuilderType).Table(tableName).SetMap(valMap).Where(whereExpr)
+}
+
+// TODO: add UpdateRecords and UpdateRecordsColumns ...
 
 type InsertBuilder struct {
 	sq.InsertBuilder
 	err error
 }
 
-func (b InsertBuilder) Err() error {
-	return b.err
+func (b InsertBuilder) Err() error { return b.err }
+
+type UpdateBuilder struct {
+	sq.UpdateBuilder
+	err error
+}
+
+func (b UpdateBuilder) Err() error { return b.err }
+
+func getTableName(record interface{}, optTableName ...string) string {
+	tableName := ""
+	if len(optTableName) > 0 {
+		tableName = optTableName[0]
+	} else {
+		if getTableName, ok := record.(hasDBTableName); ok {
+			tableName = getTableName.DBTableName()
+		}
+	}
+	return tableName
+}
+
+func createMap(k []string, v []interface{}, filterK []string) (map[string]interface{}, error) {
+	if len(k) != len(v) {
+		return nil, fmt.Errorf("key and value pair is not of equal length")
+	}
+
+	m := make(map[string]interface{}, len(k))
+
+	for i := 0; i < len(k); i++ {
+		if filterK == nil || len(filterK) == 0 {
+			m[k[i]] = v[i]
+			continue
+		}
+		for x := 0; x < len(filterK); x++ {
+			if filterK[x] == k[i] {
+				m[k[i]] = v[i]
+				break
+			}
+		}
+	}
+
+	return m, nil
 }
