@@ -1,7 +1,7 @@
 pgkit
 =====
 
-lightweight sugar PostgreSQL clients combining the use of..
+lightweight PostgreSQL sugar combining the use of..
 
 * github.com/jackc/pgx
 * github.com/Masterminds/squirrel

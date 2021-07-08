@@ -10,7 +10,10 @@ import (
 	"github.com/goware/pgkit/internal/reflectx"
 )
 
-const dbTagName = "db"
+const (
+	dbTagName   = `db`
+	dbTagPrefix = `db:"`
+)
 
 var Mapper = reflectx.NewMapper(dbTagName)
 
@@ -73,7 +76,7 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 		for _, fi := range fieldMap {
 
 			// Skip any fields which do not specify the `db:".."` tag
-			if strings.Index(string(fi.Field.Tag), dbTagName) < 0 {
+			if strings.Index(string(fi.Field.Tag), dbTagPrefix) < 0 {
 				continue
 			}
 

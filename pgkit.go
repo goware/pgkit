@@ -19,27 +19,22 @@ type DB struct {
 }
 
 type Config struct {
-	Database          string   `toml:"database"`
-	Hosts             []string `toml:"hosts"`
-	Username          string   `toml:"username"`
-	Password          string   `toml:"password"`
-	DebugQueries      bool     `toml:"debug_queries"`
-	ReportQueryErrors bool     `toml:"report_query_errors"`
-	MaxOpenConns      int      `toml:"max_open_conns"`
-	MaxIdleConns      int      `toml:"max_idle_conns"`
-	ConnMaxLifetime   string   `toml:"conn_max_lifetime"`
+	Database          string `toml:"database"`
+	Host              string `toml:"host"`
+	Username          string `toml:"username"`
+	Password          string `toml:"password"`
+	DebugQueries      bool   `toml:"debug_queries"`
+	ReportQueryErrors bool   `toml:"report_query_errors"`
+	MaxOpenConns      int    `toml:"max_open_conns"`
+	MaxIdleConns      int    `toml:"max_idle_conns"`
+	ConnMaxLifetime   string `toml:"conn_max_lifetime"`
 }
 
 func Connect(appName string, cfg Config) (*DB, error) {
-	if len(cfg.Hosts) == 0 {
-		return nil, fmt.Errorf("invalid config param: hosts")
-	}
-	host := cfg.Hosts[0] // TODO: Why do we have multiple hosts anyway?
-
 	uri := fmt.Sprintf("postgres://%s:%s@%s/%s?application_name=%v",
 		cfg.Username,
 		cfg.Password,
-		host,
+		cfg.Host,
 		cfg.Database,
 		appName,
 	)
