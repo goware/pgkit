@@ -414,8 +414,6 @@ func TestSugarUpdateRecordColumns(t *testing.T) {
 	_, err := DB.Query.Exec(context.Background(), DB.SQL.InsertRecord(account))
 	assert.NoError(t, err)
 
-	// TODO: lets add returning id, etc...
-
 	// Query
 	accountResp := &Account{}
 	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), accountResp)
