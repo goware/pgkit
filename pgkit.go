@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/georgysavva/scany/pgxscan"
@@ -19,15 +20,13 @@ type DB struct {
 }
 
 type Config struct {
-	Database          string `toml:"database"`
-	Host              string `toml:"host"`
-	Username          string `toml:"username"`
-	Password          string `toml:"password"`
-	DebugQueries      bool   `toml:"debug_queries"`
-	ReportQueryErrors bool   `toml:"report_query_errors"`
-	MaxOpenConns      int    `toml:"max_open_conns"`
-	MaxIdleConns      int    `toml:"max_idle_conns"`
-	ConnMaxLifetime   string `toml:"conn_max_lifetime"`
+	Database        string `toml:"database"`
+	Host            string `toml:"host"`
+	Username        string `toml:"username"`
+	Password        string `toml:"password"`
+	MaxConns        int32  `toml:"max_conns"`
+	MinConns        int32  `toml:"min_conns"`
+	ConnMaxLifetime string `toml:"conn_max_lifetime"` // ie. "1800s" or "1h"
 }
 
 func Connect(appName string, cfg Config) (*DB, error) {
@@ -43,8 +42,25 @@ func Connect(appName string, cfg Config) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	// TODO... check values, etc. setup, etc.
-	// pgCfg.MaxConns = int32(cfg.MaxIdleConns)
+
+	if cfg.MaxConns == 0 {
+		cfg.MaxConns = 4
+	}
+	if cfg.ConnMaxLifetime == "" {
+		cfg.ConnMaxLifetime = "1h"
+	}
+
+	pgxCfg.MaxConns = cfg.MaxConns
+	pgxCfg.MinConns = cfg.MinConns
+
+	pgxCfg.MaxConnLifetime, err = time.ParseDuration(cfg.ConnMaxLifetime)
+	if err != nil {
+		return nil, fmt.Errorf("config invalid conn_max_lifetime value: %w", err)
+	}
+
+	pgxCfg.MaxConnIdleTime = time.Minute * 30
+
+	pgxCfg.HealthCheckPeriod = time.Minute
 
 	return ConnectWithPGXConfig(appName, pgxCfg)
 }

@@ -27,10 +27,11 @@ func init() {
 
 	var err error
 	DB, err = pgkit.Connect("pgkit_test", pgkit.Config{
-		Database: "pgkit_test",
-		Host:     "localhost",
-		Username: "postgres",
-		Password: "postgres",
+		Database:        "pgkit_test",
+		Host:            "localhost",
+		Username:        "postgres",
+		Password:        "postgres",
+		ConnMaxLifetime: "1h",
 	})
 	if err != nil {
 		log.Fatal(fmt.Errorf("failed to connect db: %w", err))
