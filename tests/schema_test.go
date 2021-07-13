@@ -40,6 +40,7 @@ type Stat struct {
 type Article struct {
 	ID      int64   `db:"id,omitempty"`
 	Author  string  `db:"author"`
+	Alias   *string `db:"alias"`
 	Content Content `db:"content"` // using JSONB postgres datatype
 }
 

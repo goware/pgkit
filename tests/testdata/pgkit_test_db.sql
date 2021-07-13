@@ -27,6 +27,7 @@ CREATE TABLE stats (
 
 CREATE TABLE articles (
   id SERIAL PRIMARY KEY,
-  author VARCHAR(80),
+  author VARCHAR(80) NOT NULL,
+  alias VARCHAR(80),
   content JSONB
 );

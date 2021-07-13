@@ -24,6 +24,7 @@ var (
 	}
 
 	sqlDefault = sq.Expr("DEFAULT")
+	// sqlNULL    = sq.Expr("NULL")
 
 	ErrExpectingPointerToEitherMapOrStruct = fmt.Errorf(`expecting a pointer to either a map or a struct`)
 )
@@ -95,9 +96,6 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 				} else {
 					fv.values = append(fv.values, nil)
 				}
-				if !tagOmitEmpty {
-					fv.values = append(fv.values, nil)
-				}
 				continue
 			}
 
@@ -155,6 +153,12 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 		return nil, nil, ErrExpectingPointerToEitherMapOrStruct
 	}
 
+	// sanity check -- we must have equal number of columns and values
+	if len(fv.fields) != len(fv.values) {
+		return fv.fields, fv.values, fmt.Errorf("record mapper returned %d columns and %d values", len(fv.fields), len(fv.values))
+	}
+
+	// normalize order for better cache hits
 	sort.Sort(&fv)
 
 	return fv.fields, fv.values, nil

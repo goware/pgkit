@@ -296,7 +296,7 @@ func TestRecordsWithJSONStruct(t *testing.T) {
 	cols, _, err := pgkit.Map(article)
 	assert.NoError(t, err)
 	sort.Sort(sort.StringSlice(cols))
-	assert.Equal(t, []string{"author", "content"}, cols)
+	assert.Equal(t, []string{"alias", "author", "content"}, cols)
 
 	// Insert record
 	q1 := DB.SQL.InsertRecord(article, "articles")
