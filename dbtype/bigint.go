@@ -7,7 +7,11 @@ import (
 	"strings"
 )
 
-// BigInt runtime type for Postgres `numeric(78,0)`
+// BigInt is a type alias for big.Int used for JSON/Database marshalling.
+//
+// For JSON values we encoded BigInt's as strings.
+//
+// For Database values we encoded BigInt's as NUMERIC(78).
 type BigInt big.Int
 
 func NewBigInt(n int64) BigInt {
