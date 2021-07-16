@@ -34,7 +34,7 @@ type Config struct {
 func Connect(appName string, cfg Config) (*DB, error) {
 	poolCfg, err := pgxpool.ParseConfig(getConnectURI(appName, cfg))
 	if err != nil {
-		return nil, err
+		return nil, wrapErr(err)
 	}
 
 	if cfg.MaxConns == 0 {
@@ -49,7 +49,7 @@ func Connect(appName string, cfg Config) (*DB, error) {
 
 	poolCfg.MaxConnLifetime, err = time.ParseDuration(cfg.ConnMaxLifetime)
 	if err != nil {
-		return nil, fmt.Errorf("config invalid conn_max_lifetime value: %w", err)
+		return nil, fmt.Errorf("pgkit: config invalid conn_max_lifetime value: %w", err)
 	}
 
 	poolCfg.MaxConnIdleTime = time.Minute * 30
@@ -62,7 +62,7 @@ func Connect(appName string, cfg Config) (*DB, error) {
 func ConnectWithPGX(appName string, pgxConfig *pgxpool.Config) (*DB, error) {
 	pool, err := pgxpool.ConnectConfig(context.Background(), pgxConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to db: %w", err)
+		return nil, fmt.Errorf("pgkit: failed to connect to db: %w", err)
 	}
 
 	db := &DB{
@@ -70,7 +70,7 @@ func ConnectWithPGX(appName string, pgxConfig *pgxpool.Config) (*DB, error) {
 	}
 
 	db.SQL = &StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
-	db.Query = &Querier{DB: db, SQL: db.SQL}
+	db.Query = &Querier{pool: db.Conn, SQL: db.SQL}
 
 	return db, nil
 }
@@ -95,6 +95,10 @@ func getConnectURI(appName string, cfg Config) string {
 	)
 }
 
+func (d *DB) TxQuery(tx pgx.Tx) *Querier {
+	return &Querier{tx: tx, SQL: d.SQL}
+}
+
 type Sqlizer interface {
 	// ToSql converts a runtime builder structure to an executable SQL query, returns:
 	// query string, query values, and optional error
@@ -106,69 +110,91 @@ type hasErr interface {
 }
 
 type Querier struct {
-	DB  *DB
-	SQL *StatementBuilder
+	pool *pgxpool.Pool
+	tx   pgx.Tx
+	SQL  *StatementBuilder
 }
 
 func (q *Querier) Exec(ctx context.Context, query Sqlizer) (pgconn.CommandTag, error) {
 	// check for query errors
 	if getErr, ok := query.(hasErr); ok && getErr.Err() != nil {
-		return nil, getErr.Err()
+		return nil, wrapErr(getErr.Err())
 	}
 
-	// get connection, sqlize, and execute
-	conn := q.DB.Conn
 	sql, args, err := query.ToSql()
 	if err != nil {
-		return nil, err
+		return nil, wrapErr(err)
 	}
-	return conn.Exec(ctx, sql, args...)
+
+	var tag pgconn.CommandTag
+	if q.tx != nil {
+		tag, err = q.tx.Exec(ctx, sql, args...)
+	} else {
+		tag, err = q.pool.Exec(ctx, sql, args...)
+	}
+
+	if err != nil {
+		return nil, wrapErr(err)
+	}
+	return tag, nil
 }
 
 func (q *Querier) QueryRows(ctx context.Context, query Sqlizer) (pgx.Rows, error) {
 	// check for query errors
 	if getErr, ok := query.(hasErr); ok && getErr.Err() != nil {
-		return nil, getErr.Err()
+		return nil, wrapErr(getErr.Err())
 	}
 
-	// get connection, sqlize, and query
-	conn := q.DB.Conn
 	sql, args, err := query.ToSql()
 	if err != nil {
-		return nil, err
+		return nil, wrapErr(err)
 	}
-	return conn.Query(ctx, sql, args...)
+
+	var rows pgx.Rows
+	if q.tx != nil {
+		rows, err = q.tx.Query(ctx, sql, args...)
+	} else {
+		rows, err = q.pool.Query(ctx, sql, args...)
+	}
+
+	if err != nil {
+		return nil, wrapErr(err)
+	}
+	return rows, nil
 }
 
 func (q *Querier) QueryRow(ctx context.Context, query Sqlizer) pgx.Row {
 	// check for query errors
 	if getErr, ok := query.(hasErr); ok && getErr.Err() != nil {
-		return errRow{getErr.Err()}
+		return errRow{wrapErr(getErr.Err())}
 	}
 
-	// get connection, sqlize, and query
-	conn := q.DB.Conn
 	sql, args, err := query.ToSql()
 	if err != nil {
-		return errRow{err}
+		return errRow{wrapErr(err)}
 	}
-	return conn.QueryRow(ctx, sql, args...)
+
+	if q.tx != nil {
+		return q.tx.QueryRow(ctx, sql, args...)
+	} else {
+		return q.pool.QueryRow(ctx, sql, args...)
+	}
 }
 
 func (q *Querier) GetAll(ctx context.Context, query sq.SelectBuilder, dest interface{}) error {
 	rows, err := q.QueryRows(ctx, query)
 	if err != nil {
-		return err
+		return wrapErr(err)
 	}
-	return pgxscan.ScanAll(dest, rows)
+	return wrapErr(pgxscan.ScanAll(dest, rows))
 }
 
 func (q *Querier) GetOne(ctx context.Context, query sq.SelectBuilder, dest interface{}) error {
 	rows, err := q.QueryRows(ctx, query.Limit(1))
 	if err != nil {
-		return err
+		return wrapErr(err)
 	}
-	return pgxscan.ScanOne(dest, rows)
+	return wrapErr(pgxscan.ScanOne(dest, rows))
 }
 
 type hasDBTableName interface {
@@ -185,7 +211,7 @@ func (s *StatementBuilder) InsertRecord(record interface{}, optTableName ...stri
 
 	cols, vals, err := Map(record)
 	if err != nil {
-		return InsertBuilder{InsertBuilder: insert, err: err}
+		return InsertBuilder{InsertBuilder: insert, err: wrapErr(err)}
 	}
 
 	return InsertBuilder{InsertBuilder: insert.Into(tableName).Columns(cols...).Values(vals...)}
@@ -196,10 +222,10 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 
 	v := reflect.ValueOf(recordsSlice)
 	if v.Kind() != reflect.Slice {
-		return InsertBuilder{InsertBuilder: insert, err: fmt.Errorf("records must be a slice type")}
+		return InsertBuilder{InsertBuilder: insert, err: wrapErr(fmt.Errorf("records must be a slice type"))}
 	}
 	if v.Len() == 0 {
-		return InsertBuilder{InsertBuilder: insert, err: fmt.Errorf("records slice is empty")}
+		return InsertBuilder{InsertBuilder: insert, err: wrapErr(fmt.Errorf("records slice is empty"))}
 	}
 
 	tableName := ""
@@ -218,7 +244,7 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 
 		cols, vals, err := Map(record)
 		if err != nil {
-			return InsertBuilder{InsertBuilder: insert, err: err}
+			return InsertBuilder{InsertBuilder: insert, err: wrapErr(err)}
 		}
 
 		if i == 0 {
@@ -237,11 +263,11 @@ func (s StatementBuilder) UpdateRecord(record interface{}, whereExpr sq.Eq, optT
 
 	cols, vals, err := Map(record)
 	if err != nil {
-		return UpdateBuilder{UpdateBuilder: update, err: err}
+		return UpdateBuilder{UpdateBuilder: update, err: wrapErr(err)}
 	}
 	valMap, err := createMap(cols, vals, nil)
 	if err != nil {
-		return UpdateBuilder{UpdateBuilder: update, err: err}
+		return UpdateBuilder{UpdateBuilder: update, err: wrapErr(err)}
 	}
 
 	return UpdateBuilder{UpdateBuilder: update.Table(tableName).SetMap(valMap).Where(whereExpr)}
@@ -253,11 +279,11 @@ func (s StatementBuilder) UpdateRecordColumns(record interface{}, whereExpr sq.E
 
 	cols, vals, err := Map(record)
 	if err != nil {
-		return UpdateBuilder{UpdateBuilder: update, err: err}
+		return UpdateBuilder{UpdateBuilder: update, err: wrapErr(err)}
 	}
 	valMap, err := createMap(cols, vals, filterCols)
 	if err != nil {
-		return UpdateBuilder{UpdateBuilder: update, err: err}
+		return UpdateBuilder{UpdateBuilder: update, err: wrapErr(err)}
 	}
 
 	return UpdateBuilder{UpdateBuilder: update.Table(tableName).SetMap(valMap).Where(whereExpr)}
@@ -310,4 +336,15 @@ func createMap(k []string, v []interface{}, filterK []string) (map[string]interf
 	}
 
 	return m, nil
+}
+
+// wrapErr wraps an error so we can add the "pgkit:" prefix to messages, this way in case of a
+// db oriented error, a developer can quickly identify the source of the problem being
+// related to db app logic.
+func wrapErr(err error) error {
+	if err == nil {
+		return nil
+	} else {
+		return fmt.Errorf("pgkit: %w", err)
+	}
 }

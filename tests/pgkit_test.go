@@ -16,6 +16,7 @@ import (
 	"github.com/goware/pgkit/dbtype"
 	"github.com/jackc/pgx/v4"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -439,21 +440,103 @@ func TestSugarUpdateRecordColumns(t *testing.T) {
 	assert.True(t, accountResp2.ID == accountResp.ID)
 }
 
-func TestTransaction(t *testing.T) {
+func TestTransactionBasics(t *testing.T) {
 	truncateTable(t, "accounts")
 
+	// Insert some rows + commit
 	DB.Conn.BeginFunc(context.Background(), func(tx pgx.Tx) error {
+		// Insert 1
+		insertq, args, err := DB.SQL.Insert("accounts").Columns("name", "disabled").Values("peter", false).ToSql()
+		require.NoError(t, err)
 
-		// .......
+		_, err = tx.Exec(context.Background(), insertq, args...)
+		require.NoError(t, err)
+
+		// Insert 2
+		insertq2, args2, err := DB.SQL.Insert("accounts").Columns("name", "disabled").Values("mario", true).ToSql()
+		require.NoError(t, err)
+
+		_, err = tx.Exec(context.Background(), insertq2, args2...)
+		require.NoError(t, err)
 
 		return nil
 	})
 
-	// TODO ..
+	// Assert above records have been made
+	{
+		var accounts []*Account
+		q := DB.SQL.Select("*").From("accounts").OrderBy("name")
+		err := DB.Query.GetAll(context.Background(), q, &accounts)
+		require.NoError(t, err)
+		assert.Len(t, accounts, 2)
+		assert.True(t, accounts[0].Name == "mario")
+		assert.True(t, accounts[1].Name == "peter")
+	}
 
-	// create 2 records, and then lets roll back.. ensure nothing was commited..
+	// Insert some rows -- but rollback
+	DB.Conn.BeginFunc(context.Background(), func(tx pgx.Tx) error {
+		// Insert 1
+		insertq, args, err := DB.SQL.Insert("accounts").Columns("name", "disabled").Values("zelda", false).ToSql()
+		require.NoError(t, err)
 
-	// then, do another txn, insert 2 diff txns, lets commit, then confirm,..
+		_, err = tx.Exec(context.Background(), insertq, args...)
+		require.NoError(t, err)
+
+		// Insert 2
+		insertq2, args2, err := DB.SQL.Insert("accounts").Columns("name", "disabled").Values("princess", true).ToSql()
+		require.NoError(t, err)
+
+		_, err = tx.Exec(context.Background(), insertq2, args2...)
+		require.NoError(t, err)
+
+		return fmt.Errorf("something bad happend")
+	})
+
+	// Assert above records were rolled back
+	{
+		var accounts []*Account
+		q := DB.SQL.Select("*").From("accounts").OrderBy("name")
+		err := DB.Query.GetAll(context.Background(), q, &accounts)
+		require.NoError(t, err)
+		assert.Len(t, accounts, 2)
+	}
+}
+
+func TestSugarTransaction(t *testing.T) {
+	truncateTable(t, "accounts")
+
+	DB.Conn.BeginFunc(context.Background(), func(tx pgx.Tx) error {
+		rec1 := &Account{
+			Name:     "peter",
+			Disabled: false,
+		}
+
+		q1 := DB.SQL.InsertRecord(rec1)
+		_, err := DB.TxQuery(tx).Exec(context.Background(), q1)
+		require.NoError(t, err)
+
+		rec2 := &Account{
+			Name:     "mario",
+			Disabled: true,
+		}
+
+		q2 := DB.SQL.InsertRecord(rec2)
+		_, err = DB.TxQuery(tx).Exec(context.Background(), q2)
+		require.NoError(t, err)
+
+		return nil
+	})
+
+	// Assert above records have been made
+	{
+		var accounts []*Account
+		q := DB.SQL.Select("*").From("accounts").OrderBy("name")
+		err := DB.Query.GetAll(context.Background(), q, &accounts)
+		require.NoError(t, err)
+		assert.Len(t, accounts, 2)
+		assert.True(t, accounts[0].Name == "mario")
+		assert.True(t, accounts[1].Name == "peter")
+	}
 }
 
 // TODO: batch support .. with test
