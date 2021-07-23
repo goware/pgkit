@@ -281,7 +281,16 @@ func (s StatementBuilder) UpdateRecordColumns(record interface{}, whereExpr sq.E
 	if err != nil {
 		return UpdateBuilder{UpdateBuilder: update, err: wrapErr(err)}
 	}
-	valMap, err := createMap(cols, vals, filterCols)
+
+	// when filter is empty or nil, update the entire record
+	var filter []string
+	if filterCols == nil || len(filterCols) == 0 {
+		filter = nil
+	} else {
+		filter = filterCols
+	}
+
+	valMap, err := createMap(cols, vals, filter)
 	if err != nil {
 		return UpdateBuilder{UpdateBuilder: update, err: wrapErr(err)}
 	}
