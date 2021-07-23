@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+
+	"github.com/jackc/pgtype"
+	"github.com/kr/pretty"
 )
 
 // BigInt is a type alias for big.Int used for JSON/Database marshalling.
@@ -174,4 +177,40 @@ func (b *BigInt) Scan(src interface{}) error {
 	*b = BigInt(*i)
 
 	return nil
+}
+
+// func (src *Point) AssignTo(dst interface{}) error {
+// 	return fmt.Errorf("cannot assign %v to %T", src, dst)
+// }
+
+func (b BigInt) DecodeText(ci *pgtype.ConnInfo, src []byte) error {
+	pretty.Println(src)
+	// panic("geez")
+	err := b.Scan(src)
+	if err != nil {
+		panic(err)
+	}
+	return nil
+}
+
+func (dst *BigInt) Set(src interface{}) error {
+	panic("common")
+	// return fmt.Errorf("cannot convert %v to Point", src)
+}
+
+func (dst *BigInt) Get() interface{} {
+	panic("ahh")
+	// switch dst.Status {
+	// case pgtype.Present:
+	// 	return dst
+	// case pgtype.Null:
+	// 	return nil
+	// default:
+	// 	return dst.Status
+	// }
+}
+
+// BigInt pgx custom type assignment
+func (src *BigInt) AssignTo(dst interface{}) error {
+	panic("wee")
 }

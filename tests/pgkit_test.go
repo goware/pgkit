@@ -15,6 +15,7 @@ import (
 	"github.com/goware/pgkit"
 	"github.com/goware/pgkit/dbtype"
 	"github.com/jackc/pgx/v4"
+	"github.com/kr/pretty"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -316,22 +317,23 @@ func TestRecordsWithJSONStruct(t *testing.T) {
 func TestRowsWithBigInt(t *testing.T) {
 	truncateTable(t, "stats")
 
-	{
-		stat := &Stat{Key: "count", Num: dbtype.NewBigInt(2)}
+	// {
+	// 	stat := &Stat{Key: "count", Num: dbtype.NewBigInt(2)}
 
-		// Insert
-		q1 := DB.SQL.InsertRecord(stat, "stats")
-		_, err := DB.Query.Exec(context.Background(), q1)
-		assert.NoError(t, err)
+	// 	// Insert
+	// 	q1 := DB.SQL.InsertRecord(stat, "stats")
+	// 	_, err := DB.Query.Exec(context.Background(), q1)
+	// 	assert.NoError(t, err)
 
-		// Select
-		var sout Stat
-		q2 := DB.SQL.Select("*").From("stats").Where(sq.Eq{"key": "count"})
-		err = DB.Query.GetOne(context.Background(), q2, &sout)
-		assert.NoError(t, err)
-		assert.Equal(t, "count", sout.Key)
-		assert.True(t, sout.Num.Int64() == 2)
-	}
+	// 	// Select
+	// 	var sout Stat
+	// 	q2 := DB.SQL.Select("*").From("stats").Where(sq.Eq{"key": "count"})
+	// 	err = DB.Query.GetOne(context.Background(), q2, &sout)
+	// 	assert.NoError(t, err)
+	// 	assert.Equal(t, "count", sout.Key)
+	// 	assert.True(t, sout.Num.Int64() == 2)
+	// 	assert.Nil(t, sout.Rating)
+	// }
 
 	// another one, big number this time
 	{
@@ -349,6 +351,34 @@ func TestRowsWithBigInt(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "count2", sout.Key)
 		assert.True(t, sout.Num.String() == "12323942398472837489234")
+
+		pretty.Println(sout.Rating)
+
+		assert.Nil(t, sout.Rating)
+	}
+
+	// last, with opt rating
+	{
+		v := dbtype.NewBigInt(5)
+		stat := &Stat{
+			Key:    "count3",
+			Num:    dbtype.NewBigIntFromString("44", 0),
+			Rating: v,
+		}
+
+		// Insert
+		q1 := DB.SQL.InsertRecord(stat, "stats")
+		_, err := DB.Query.Exec(context.Background(), q1)
+		assert.NoError(t, err)
+
+		// Select
+		var sout Stat
+		q2 := DB.SQL.Select("*").From("stats").Where(sq.Eq{"key": "count3"})
+		err = DB.Query.GetOne(context.Background(), q2, &sout)
+		assert.NoError(t, err)
+		assert.Equal(t, "count3", sout.Key)
+		assert.True(t, sout.Num.String() == "44")
+		assert.True(t, sout.Rating.String() == "5")
 	}
 }
 

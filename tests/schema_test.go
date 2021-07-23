@@ -32,9 +32,10 @@ type Log struct {
 }
 
 type Stat struct {
-	ID  int64         `db:"id,omitempty"`
-	Key string        `db:"key"`
-	Num dbtype.BigInt `db:"big_num"` // using NUMERIC(78,0) postgres datatype
+	ID     int64         `db:"id,omitempty"`
+	Key    string        `db:"key"`
+	Num    dbtype.BigInt `db:"big_num"` // using NUMERIC(78,0) postgres datatype
+	Rating dbtype.BigInt `db:"rating"`  // using NUMERIC(78,0) postgres datatype
 }
 
 type Article struct {
