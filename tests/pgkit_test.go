@@ -359,11 +359,12 @@ func TestRowsWithBigInt(t *testing.T) {
 
 	// last, with opt rating
 	{
-		v := dbtype.NewBigInt(5)
+		bv := dbtype.NewBigInt(5)
+
 		stat := &Stat{
 			Key:    "count3",
 			Num:    dbtype.NewBigIntFromString("44", 0),
-			Rating: v,
+			Rating: &bv,
 		}
 
 		// Insert
