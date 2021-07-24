@@ -317,23 +317,23 @@ func TestRecordsWithJSONStruct(t *testing.T) {
 func TestRowsWithBigInt(t *testing.T) {
 	truncateTable(t, "stats")
 
-	// {
-	// 	stat := &Stat{Key: "count", Num: dbtype.NewBigInt(2)}
+	{
+		stat := &Stat{Key: "count", Num: dbtype.NewBigInt(2)}
 
-	// 	// Insert
-	// 	q1 := DB.SQL.InsertRecord(stat, "stats")
-	// 	_, err := DB.Query.Exec(context.Background(), q1)
-	// 	assert.NoError(t, err)
+		// Insert
+		q1 := DB.SQL.InsertRecord(stat, "stats")
+		_, err := DB.Query.Exec(context.Background(), q1)
+		assert.NoError(t, err)
 
-	// 	// Select
-	// 	var sout Stat
-	// 	q2 := DB.SQL.Select("*").From("stats").Where(sq.Eq{"key": "count"})
-	// 	err = DB.Query.GetOne(context.Background(), q2, &sout)
-	// 	assert.NoError(t, err)
-	// 	assert.Equal(t, "count", sout.Key)
-	// 	assert.True(t, sout.Num.Int64() == 2)
-	// 	assert.Nil(t, sout.Rating)
-	// }
+		// Select
+		var sout Stat
+		q2 := DB.SQL.Select("*").From("stats").Where(sq.Eq{"key": "count"})
+		err = DB.Query.GetOne(context.Background(), q2, &sout)
+		assert.NoError(t, err)
+		assert.Equal(t, "count", sout.Key)
+		assert.True(t, sout.Num.Int64() == 2)
+		assert.Nil(t, sout.Rating)
+	}
 
 	// another one, big number this time
 	{
