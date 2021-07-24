@@ -258,19 +258,7 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 }
 
 func (s StatementBuilder) UpdateRecord(record interface{}, whereExpr sq.Eq, optTableName ...string) UpdateBuilder {
-	tableName := getTableName(record, optTableName...)
-	update := sq.UpdateBuilder(s.StatementBuilderType)
-
-	cols, vals, err := Map(record)
-	if err != nil {
-		return UpdateBuilder{UpdateBuilder: update, err: wrapErr(err)}
-	}
-	valMap, err := createMap(cols, vals, nil)
-	if err != nil {
-		return UpdateBuilder{UpdateBuilder: update, err: wrapErr(err)}
-	}
-
-	return UpdateBuilder{UpdateBuilder: update.Table(tableName).SetMap(valMap).Where(whereExpr)}
+	return s.UpdateRecordColumns(record, whereExpr, nil, optTableName...)
 }
 
 func (s StatementBuilder) UpdateRecordColumns(record interface{}, whereExpr sq.Eq, filterCols []string, optTableName ...string) UpdateBuilder {
