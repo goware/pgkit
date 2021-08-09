@@ -22,7 +22,8 @@ CREATE TABLE logs (
 CREATE TABLE stats (
   id SERIAL PRIMARY KEY,
   key VARCHAR(80),
-  big_num NUMERIC(78,0) -- representing a *big.Int runtime type
+  big_num NUMERIC(78,0) NOT NULL, -- representing a big.Int runtime type
+  rating NUMERIC(78,0) -- representing a *big.Int runtime type
 );
 
 CREATE TABLE articles (
