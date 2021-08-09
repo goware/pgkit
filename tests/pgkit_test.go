@@ -350,6 +350,24 @@ func TestRowsWithBigInt(t *testing.T) {
 		assert.Equal(t, "count2", sout.Key)
 		assert.True(t, sout.Num.String() == "12323942398472837489234")
 	}
+
+	// bigint ending 0 test
+	{
+		stat := &Stat{Key: "count3", Num: dbtype.NewBigInt(21000)}
+
+		// Insert
+		q1 := DB.SQL.InsertRecord(stat, "stats")
+		_, err := DB.Query.Exec(context.Background(), q1)
+		assert.NoError(t, err)
+
+		// Select
+		var sout Stat
+		q2 := DB.SQL.Select("*").From("stats").Where(sq.Eq{"key": "count3"})
+		err = DB.Query.GetOne(context.Background(), q2, &sout)
+		assert.NoError(t, err)
+		assert.Equal(t, "count3", sout.Key)
+		assert.True(t, sout.Num.Int64() == 21000)
+	}
 }
 
 func TestSugarInsertAndSelectMultipleRecords(t *testing.T) {
