@@ -7,29 +7,33 @@ import (
 	"strings"
 )
 
-// BigInt is a type alias for big.Int used for JSON/Database marshalling.
+// BigInt is a type that represents big.Int that may be null, this type is
+// used for JSON/Database marshalling.
 //
 // For JSON values we encoded BigInt's as strings.
 //
 // For Database values we encoded BigInt's as NUMERIC(78).
-type BigInt big.Int
+type BigInt struct {
+	V       big.Int
+	IsValid bool
+}
 
 func NewBigInt(n int64) BigInt {
 	b := big.NewInt(n)
-	return BigInt(*b)
+	return BigInt{*b, true}
 }
 
 func NewBigIntFromString(s string, base int) BigInt {
 	b := big.NewInt(0)
 	b, _ = b.SetString(s, base)
-	return BigInt(*b)
+	return BigInt{*b, true}
 }
 
 func ToBigInt(b *big.Int) BigInt {
 	if b == nil {
 		return BigInt{}
 	}
-	return BigInt(*b)
+	return BigInt{*b, true}
 }
 
 func ToBigIntArray(bs []*big.Int) []BigInt {
@@ -57,40 +61,53 @@ func ToBigIntFromInt64(n int64) BigInt {
 }
 
 func (b *BigInt) SetString(s string, base int) bool {
-	v := big.Int(*b)
+	v := big.Int(b.V)
 	n, ok := v.SetString(s, base)
 	if !ok {
 		return false
 	}
-	*b = BigInt(*n)
+	b.V = *n
+	b.IsValid = true
 	return true
 }
 
 func (b BigInt) String() string {
-	return b.Int().String()
+	if b.IsValid {
+		return b.Int().String()
+	}
+	return ""
 }
 
 func (b BigInt) Int() *big.Int {
-	v := big.Int(b)
-	return &v
+	if b.IsValid {
+		v := big.Int(b.V)
+		return &v
+	}
+	return nil
 }
 
 func (b BigInt) Uint64() uint64 {
-	return b.Int().Uint64()
+	if b.IsValid {
+		return b.Int().Uint64()
+	}
+	return 0
 }
 
 func (b BigInt) Int64() int64 {
-	return b.Int().Int64()
+	if b.IsValid {
+		return b.Int().Int64()
+	}
+	return 0
 }
 
 func (b *BigInt) Add(n *big.Int) {
 	z := b.Int().Add(b.Int(), n)
-	*b = BigInt(*z)
+	*b = BigInt{*z, true}
 }
 
 func (b *BigInt) Sub(n *big.Int) {
 	z := b.Int().Sub(b.Int(), n)
-	*b = BigInt(*z)
+	*b = BigInt{*z, true}
 }
 
 func (b BigInt) Equals(n *big.Int) bool {
@@ -115,7 +132,7 @@ func (b BigInt) Lte(n *big.Int) bool {
 
 // MarshalText implements encoding.TextMarshaler.
 func (b BigInt) MarshalText() ([]byte, error) {
-	v := fmt.Sprintf("\"%s\"", b.String())
+	v := fmt.Sprintf("%q", b.String())
 	return []byte(v), nil
 }
 
@@ -126,28 +143,19 @@ func (b *BigInt) UnmarshalText(text []byte) error {
 		return nil
 	}
 	i, _ := big.NewInt(0).SetString(string(text[1:len(text)-1]), 10)
-	*b = BigInt(*i)
+	*b = BigInt{*i, true}
 	return nil
 }
 
-// MarshalJSON implements json.Marshaler
-func (b BigInt) MarshalJSON() ([]byte, error) {
-	return b.MarshalText()
-}
-
-// UnmarshalJSON implements json.Unmarshaler
-func (b *BigInt) UnmarshalJSON(text []byte) error {
-	if string(text) == "null" {
-		return nil
-	}
-	return b.UnmarshalText(text)
-}
-
 func (b BigInt) Value() (driver.Value, error) {
-	return b.String(), nil
+	if b.IsValid {
+		return b.V.String(), nil
+	}
+	return nil, nil
 }
 
 func (b *BigInt) Scan(src interface{}) error {
+	b.IsValid = false
 	if src == nil {
 		return nil
 	}
@@ -181,7 +189,21 @@ func (b *BigInt) Scan(src interface{}) error {
 		i = i.Mul(i, big.NewInt(1).Exp(big.NewInt(10), exp, nil))
 	}
 
-	*b = BigInt(*i)
+	b.V = *i
+	b.IsValid = true
 
 	return nil
+}
+
+// MarshalJSON implements json.Marshaler
+func (b BigInt) MarshalJSON() ([]byte, error) {
+	return b.MarshalText()
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (b *BigInt) UnmarshalJSON(text []byte) error {
+	if string(text) == "null" {
+		return nil
+	}
+	return b.UnmarshalText(text)
 }
