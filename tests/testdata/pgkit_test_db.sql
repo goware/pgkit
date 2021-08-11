@@ -23,7 +23,7 @@ CREATE TABLE stats (
   id SERIAL PRIMARY KEY,
   key VARCHAR(80) UNIQUE,
   big_num NUMERIC(78,0) NOT NULL, -- representing a big.Int runtime type
-  rating NUMERIC(78,0) NULL -- representing a *big.Int runtime type
+  rating NUMERIC(78,0) NULL -- representing a nullable big.Int runtime type
 );
 
 CREATE TABLE articles (
