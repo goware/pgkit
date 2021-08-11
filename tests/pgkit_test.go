@@ -314,11 +314,11 @@ func TestRecordsWithJSONStruct(t *testing.T) {
 	assert.Equal(t, "How to cook pizza", aout.Content.Title)
 }
 
-func TestRowsWithBigInt(t *testing.T) {
+func TestRowsWithNullBigInt(t *testing.T) {
 	truncateTable(t, "stats")
 
 	{
-		stat := &Stat{Key: "count", Num: dbtype.NewBigInt(2)}
+		stat := &Stat{Key: "count", Num: dbtype.NewNullBigInt(2)}
 
 		// Insert
 		q1 := DB.SQL.InsertRecord(stat, "stats")
@@ -332,12 +332,14 @@ func TestRowsWithBigInt(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "count", sout.Key)
 		assert.True(t, sout.Num.Int64() == 2)
-		assert.Nil(t, sout.Rating)
+		assert.True(t, sout.Num.Valid)
+
+		assert.False(t, sout.Rating.Valid)
 	}
 
 	// another one, big number this time
 	{
-		stat := &Stat{Key: "count2", Num: dbtype.NewBigIntFromString("12323942398472837489234", 0)}
+		stat := &Stat{Key: "count2", Num: dbtype.NewNullBigIntFromString("12323942398472837489234", 0)}
 
 		// Insert
 		q1 := DB.SQL.InsertRecord(stat, "stats")
@@ -351,20 +353,18 @@ func TestRowsWithBigInt(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "count2", sout.Key)
 		assert.True(t, sout.Num.String() == "12323942398472837489234")
+		assert.True(t, sout.Num.Valid)
 
 		pretty.Println(sout.Rating)
 
-		assert.Nil(t, sout.Rating)
+		assert.False(t, sout.Rating.Valid)
 	}
 
-	// last, with opt rating
 	{
-		bv := dbtype.NewBigInt(5)
-
 		stat := &Stat{
 			Key:    "count3",
-			Num:    dbtype.NewBigIntFromString("44", 0),
-			Rating: &bv,
+			Num:    dbtype.NewNullBigIntFromString("44", 0),
+			Rating: dbtype.NewNullBigInt(5),
 		}
 
 		// Insert
@@ -379,12 +379,14 @@ func TestRowsWithBigInt(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "count3", sout.Key)
 		assert.True(t, sout.Num.String() == "44")
+		assert.True(t, sout.Num.Valid)
 		assert.True(t, sout.Rating.String() == "5")
+		assert.True(t, sout.Rating.Valid)
 	}
 
 	// bigint ending 0 test
 	{
-		stat := &Stat{Key: "count3", Num: dbtype.NewBigInt(21000)}
+		stat := &Stat{Key: "count4", Num: dbtype.NewNullBigInt(21000)}
 
 		// Insert
 		q1 := DB.SQL.InsertRecord(stat, "stats")
@@ -393,11 +395,11 @@ func TestRowsWithBigInt(t *testing.T) {
 
 		// Select
 		var sout Stat
-		q2 := DB.SQL.Select("*").From("stats").Where(sq.Eq{"key": "count3"})
+		q2 := DB.SQL.Select("*").From("stats").Where(sq.Eq{"key": "count4"})
 		err = DB.Query.GetOne(context.Background(), q2, &sout)
 		assert.NoError(t, err)
-		assert.Equal(t, "count3", sout.Key)
-		assert.True(t, sout.Num.Int64() == 21000)
+		assert.Equal(t, "count4", sout.Key)
+		assert.Equal(t, int64(21000), sout.Num.Int64())
 	}
 }
 

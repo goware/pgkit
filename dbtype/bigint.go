@@ -10,147 +10,155 @@ import (
 	"github.com/kr/pretty"
 )
 
-// BigInt is a type alias for big.Int used for JSON/Database marshalling.
+// NullBigInt is a type that represents big.Int that may be null, this type is
+// used for JSON/Database marshalling.
 //
-// For JSON values we encoded BigInt's as strings.
+// For JSON values we encoded NullBigInt's as strings.
 //
-// For Database values we encoded BigInt's as NUMERIC(78).
-type BigInt big.Int
-
-func NewBigInt(n int64) BigInt {
-	b := big.NewInt(n)
-	return BigInt(*b)
+// For Database values we encoded NullBigInt's as NUMERIC(78).
+type NullBigInt struct {
+	BigInt big.Int
+	Valid  bool
 }
 
-func NewBigIntFromString(s string, base int) BigInt {
+func NewNullBigInt(n int64) NullBigInt {
+	b := big.NewInt(n)
+	return NullBigInt{*b, true}
+}
+
+func NewNullBigIntFromString(s string, base int) NullBigInt {
 	b := big.NewInt(0)
 	b, _ = b.SetString(s, base)
-	return BigInt(*b)
+	return NullBigInt{*b, true}
 }
 
-func ToBigInt(b *big.Int) BigInt {
+func ToNullBigInt(b *big.Int) NullBigInt {
 	if b == nil {
-		return BigInt{}
+		return NullBigInt{}
 	}
-	return BigInt(*b)
+	return NullBigInt{*b, true}
 }
 
-func ToBigIntArray(bs []*big.Int) []BigInt {
-	var pbs []BigInt
+func ToNullBigIntArray(bs []*big.Int) []NullBigInt {
+	var pbs []NullBigInt
 	for _, b := range bs {
-		pbs = append(pbs, ToBigInt(b))
+		pbs = append(pbs, ToNullBigInt(b))
 	}
 	return pbs
 }
 
-func ToBigIntArrayFromStringArray(s []string, base int) ([]BigInt, error) {
-	var pbs []BigInt
+func ToBigIntArrayFromStringArray(s []string, base int) ([]NullBigInt, error) {
+	var pbs []NullBigInt
 	for _, v := range s {
 		b, ok := (&big.Int{}).SetString(v, base)
 		if !ok {
 			return nil, fmt.Errorf("invalid number %s", s)
 		}
-		pbs = append(pbs, ToBigInt(b))
+		pbs = append(pbs, ToNullBigInt(b))
 	}
 	return pbs, nil
 }
 
-func ToBigIntFromInt64(n int64) BigInt {
-	return ToBigInt(big.NewInt(n))
+func ToNullBigIntFromInt64(n int64) NullBigInt {
+	return ToNullBigInt(big.NewInt(n))
 }
 
-func (b *BigInt) SetString(s string, base int) bool {
-	v := big.Int(*b)
+func (b *NullBigInt) SetString(s string, base int) bool {
+	v := big.Int(b.BigInt)
 	n, ok := v.SetString(s, base)
 	if !ok {
 		return false
 	}
-	*b = BigInt(*n)
+	b.BigInt = *n
+	b.Valid = true
 	return true
 }
 
-func (b BigInt) String() string {
-	return b.Int().String()
+func (b NullBigInt) String() string {
+	if b.Valid {
+		return b.Int().String()
+	}
+	return ""
 }
 
-func (b BigInt) Int() *big.Int {
-	v := big.Int(b)
-	return &v
+func (b NullBigInt) Int() *big.Int {
+	if b.Valid {
+		v := big.Int(b.BigInt)
+		return &v
+	}
+	return nil
 }
 
-func (b BigInt) Uint64() uint64 {
-	return b.Int().Uint64()
+func (b NullBigInt) Uint64() uint64 {
+	if b.Valid {
+		return b.Int().Uint64()
+	}
+	return 0
 }
 
-func (b BigInt) Int64() int64 {
-	return b.Int().Int64()
+func (b NullBigInt) Int64() int64 {
+	if b.Valid {
+		return b.Int().Int64()
+	}
+	return 0
 }
 
-func (b *BigInt) Add(n *big.Int) {
+func (b *NullBigInt) Add(n *big.Int) {
 	z := b.Int().Add(b.Int(), n)
-	*b = BigInt(*z)
+	*b = NullBigInt{*z, true}
 }
 
-func (b *BigInt) Sub(n *big.Int) {
+func (b *NullBigInt) Sub(n *big.Int) {
 	z := b.Int().Sub(b.Int(), n)
-	*b = BigInt(*z)
+	*b = NullBigInt{*z, true}
 }
 
-func (b BigInt) Equals(n *big.Int) bool {
+func (b NullBigInt) Equals(n *big.Int) bool {
 	return b.Int().Cmp(n) == 0
 }
 
-func (b BigInt) Gt(n *big.Int) bool {
+func (b NullBigInt) Gt(n *big.Int) bool {
 	return b.Int().Cmp(n) == 1
 }
 
-func (b BigInt) Gte(n *big.Int) bool {
+func (b NullBigInt) Gte(n *big.Int) bool {
 	return b.Int().Cmp(n) == 0 || b.Int().Cmp(n) == 1
 }
 
-func (b BigInt) Lt(n *big.Int) bool {
+func (b NullBigInt) Lt(n *big.Int) bool {
 	return b.Int().Cmp(n) == -1
 }
 
-func (b BigInt) Lte(n *big.Int) bool {
+func (b NullBigInt) Lte(n *big.Int) bool {
 	return b.Int().Cmp(n) == 0 || b.Int().Cmp(n) == -1
 }
 
 // MarshalText implements encoding.TextMarshaler.
-func (b BigInt) MarshalText() ([]byte, error) {
-	v := fmt.Sprintf("\"%s\"", b.String())
+func (b NullBigInt) MarshalText() ([]byte, error) {
+	v := fmt.Sprintf("%q", b.String())
 	return []byte(v), nil
 }
 
 // UnmarshalText implements encoding.TextUnmarshaler.
-func (b *BigInt) UnmarshalText(text []byte) error {
+func (b *NullBigInt) UnmarshalText(text []byte) error {
 	t := string(text)
 	if len(text) <= 2 || t == "null" || t == "" {
 		return nil
 	}
 	i, _ := big.NewInt(0).SetString(string(text[1:len(text)-1]), 10)
-	*b = BigInt(*i)
+	*b = NullBigInt{*i, true}
 	return nil
 }
 
-// MarshalJSON implements json.Marshaler
-func (b BigInt) MarshalJSON() ([]byte, error) {
-	return b.MarshalText()
-}
-
-// UnmarshalJSON implements json.Unmarshaler
-func (b *BigInt) UnmarshalJSON(text []byte) error {
-	if string(text) == "null" {
-		return nil
+func (b NullBigInt) Value() (driver.Value, error) {
+	if b.Valid {
+		return b.BigInt.String(), nil
 	}
-	return b.UnmarshalText(text)
+	return nil, nil
 }
 
-func (b BigInt) Value() (driver.Value, error) {
-	return b.String(), nil
-}
-
-func (b *BigInt) Scan(src interface{}) error {
+func (b *NullBigInt) Scan(src interface{}) error {
+	b.Valid = false
 	if src == nil {
 		return nil
 	}
@@ -162,7 +170,7 @@ func (b *BigInt) Scan(src interface{}) error {
 	case []byte:
 		svalue = string(v)
 	default:
-		return fmt.Errorf("BigInt.Scan: unexpected type %T", src)
+		return fmt.Errorf("NullBigInt.Scan: unexpected type %T", src)
 	}
 
 	// pgx driver returns NeX where N is digits and X is exponent
@@ -172,7 +180,7 @@ func (b *BigInt) Scan(src interface{}) error {
 	i := &big.Int{}
 	i, ok = i.SetString(parts[0], 10)
 	if !ok {
-		return fmt.Errorf("BigInt.Scan: failed to scan value %q", svalue)
+		return fmt.Errorf("NullBigInt.Scan: failed to scan value %q", svalue)
 	}
 
 	if len(parts) >= 2 {
@@ -184,16 +192,30 @@ func (b *BigInt) Scan(src interface{}) error {
 		i = i.Mul(i, big.NewInt(1).Exp(big.NewInt(10), exp, nil))
 	}
 
-	*b = BigInt(*i)
+	b.BigInt = *i
+	b.Valid = true
 
 	return nil
+}
+
+// MarshalJSON implements json.Marshaler
+func (b NullBigInt) MarshalJSON() ([]byte, error) {
+	return b.MarshalText()
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (b *NullBigInt) UnmarshalJSON(text []byte) error {
+	if string(text) == "null" {
+		return nil
+	}
+	return b.UnmarshalText(text)
 }
 
 // func (src *Point) AssignTo(dst interface{}) error {
 // 	return fmt.Errorf("cannot assign %v to %T", src, dst)
 // }
 
-func (b BigInt) DecodeText(ci *pgtype.ConnInfo, src []byte) error {
+func (b NullBigInt) DecodeText(ci *pgtype.ConnInfo, src []byte) error {
 	pretty.Println(src)
 	// panic("geez")
 	err := b.Scan(src)
@@ -203,12 +225,12 @@ func (b BigInt) DecodeText(ci *pgtype.ConnInfo, src []byte) error {
 	return nil
 }
 
-func (dst *BigInt) Set(src interface{}) error {
+func (dst *NullBigInt) Set(src interface{}) error {
 	panic("common")
 	// return fmt.Errorf("cannot convert %v to Point", src)
 }
 
-func (dst *BigInt) Get() interface{} {
+func (dst *NullBigInt) Get() interface{} {
 	panic("ahh")
 	// switch dst.Status {
 	// case pgtype.Present:
@@ -221,6 +243,6 @@ func (dst *BigInt) Get() interface{} {
 }
 
 // BigInt pgx custom type assignment
-func (src *BigInt) AssignTo(dst interface{}) error {
+func (src *NullBigInt) AssignTo(dst interface{}) error {
 	panic("wee")
 }
