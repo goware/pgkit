@@ -10,13 +10,13 @@ import (
 
 func TestBigIntJSONMarshalling(t *testing.T) {
 	b, _ := big.NewInt(1).SetString("222222222222222222222222222222222255555555555555222222", 10)
-	b1 := ToNullBigInt(b)
+	b1 := ToBigInt(b)
 
 	data, err := json.Marshal(b1)
 	assert.NoError(t, err)
 	assert.Equal(t, "\"222222222222222222222222222222222255555555555555222222\"", string(data))
 
-	var b2 NullBigInt
+	var b2 BigInt
 	err = json.Unmarshal(data, &b2)
 	assert.NoError(t, err)
 
@@ -38,8 +38,8 @@ func TestBigIntValue(t *testing.T) {
 }
 
 func TestBigIntAdd(t *testing.T) {
-	b1 := NewNullBigInt(42)
-	b2 := NewNullBigInt(84)
+	b1 := NewBigInt(42)
+	b2 := NewBigInt(84)
 
 	b1.Add(b2.Int())
 
@@ -47,7 +47,7 @@ func TestBigIntAdd(t *testing.T) {
 }
 
 func TestBigIntScan(t *testing.T) {
-	b := NullBigInt{}
+	b := BigInt{}
 
 	assert.NoError(t, b.Scan("1"))
 	assert.NoError(t, b.Scan([]byte("1")))
