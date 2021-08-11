@@ -8,7 +8,6 @@ require (
 	github.com/jackc/pgconn v1.9.0
 	github.com/jackc/pgtype v1.8.0
 	github.com/jackc/pgx/v4 v4.12.0
-	github.com/kr/pretty v0.1.0
 	github.com/stretchr/objx v0.3.0 // indirect
 	github.com/stretchr/testify v1.7.0
 	golang.org/x/crypto v0.0.0-20210711020723-a769d52b0f97 // indirect

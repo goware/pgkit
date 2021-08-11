@@ -15,7 +15,6 @@ import (
 	"github.com/goware/pgkit"
 	"github.com/goware/pgkit/dbtype"
 	"github.com/jackc/pgx/v4"
-	"github.com/kr/pretty"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -354,8 +353,6 @@ func TestRowsWithBigInt(t *testing.T) {
 		assert.Equal(t, "count2", sout.Key)
 		assert.True(t, sout.Num.String() == "12323942398472837489234")
 		assert.True(t, sout.Num.IsValid)
-
-		pretty.Println(sout.Rating)
 
 		assert.False(t, sout.Rating.IsValid)
 	}

@@ -60,15 +60,6 @@ func Connect(appName string, cfg Config) (*DB, error) {
 }
 
 func ConnectWithPGX(appName string, pgxConfig *pgxpool.Config) (*DB, error) {
-	// pgxConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-	// 	conn.ConnInfo().RegisterDataType(pgtype.DataType{
-	// 		Value: &dbtype.BigInt{},
-	// 		Name:  "numeric",
-	// 		OID:   pgtype.NumericOID,
-	// 	})
-	// 	return nil
-	// }
-
 	pool, err := pgxpool.ConnectConfig(context.Background(), pgxConfig)
 	if err != nil {
 		return nil, fmt.Errorf("pgkit: failed to connect to db: %w", err)
