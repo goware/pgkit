@@ -65,6 +65,9 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 		recordT = recordV.Type()
 	}
 
+	// TODO: for the same "type", we can cache the fieldinfo, etc. as it will be the same
+	// on subsequent loads
+
 	switch recordT.Kind() {
 
 	case reflect.Struct:

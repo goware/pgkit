@@ -587,4 +587,42 @@ func TestSugarTransaction(t *testing.T) {
 	}
 }
 
-// TODO: batch support .. with test
+func TestBatchTransaction(t *testing.T) {
+	ctx := context.Background()
+
+	truncateTable(t, "accounts")
+
+	err := DB.Conn.BeginFunc(ctx, func(tx pgx.Tx) error {
+		batch := &pgx.Batch{}
+
+		rec := &Account{}
+		for i := 0; i < 10; i++ {
+			rec.Name = fmt.Sprintf("user-%d", i)
+			sql, args, err := DB.SQL.InsertRecord(rec).ToSql()
+			assert.NoError(t, err)
+			batch.Queue(sql, args...)
+		}
+		if batch.Len() == 0 {
+			return nil
+		}
+
+		br := tx.SendBatch(ctx, batch)
+		_, err := br.Exec()
+		if err != nil {
+			return err
+		}
+		err = br.Close()
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	assert.NoError(t, err)
+
+	var accounts []*Account
+	q := DB.SQL.Select("*").From("accounts").OrderBy("name")
+	err = DB.Query.GetAll(context.Background(), q, &accounts)
+	assert.NoError(t, err)
+	assert.Len(t, accounts, 10)
+}
