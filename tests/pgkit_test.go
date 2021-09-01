@@ -626,3 +626,117 @@ func TestBatchTransaction(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, accounts, 10)
 }
+
+func TestSugarBatchTransaction(t *testing.T) {
+	ctx := context.Background()
+
+	truncateTable(t, "accounts")
+
+	err := DB.Conn.BeginFunc(ctx, func(tx pgx.Tx) error {
+		queries := pgkit.Queries{}
+
+		for i := 0; i < 10; i++ {
+			rec := &Account{Name: fmt.Sprintf("user-%d", i)}
+			queries.Add(DB.SQL.InsertRecord(rec))
+		}
+
+		_, err := DB.TxQuery(tx).BatchExec(ctx, queries)
+		return err
+	})
+	assert.NoError(t, err)
+
+	var accounts []*Account
+	q := DB.SQL.Select("*").From("accounts").OrderBy("name")
+	err = DB.Query.GetAll(context.Background(), q, &accounts)
+	assert.NoError(t, err)
+	assert.Len(t, accounts, 10)
+}
+
+func TestBatchQuery(t *testing.T) {
+	ctx := context.Background()
+
+	batch := &pgx.Batch{}
+
+	names := []string{}
+	for i := 0; i < 10; i++ {
+		names = append(names, fmt.Sprintf("user-%d", i))
+	}
+	for _, name := range names {
+		batch.Queue(fmt.Sprintf("select * from accounts where name='%s'", name))
+	}
+
+	br := DB.Conn.SendBatch(ctx, batch)
+
+	var accounts []*Account
+
+	for i := 0; i < batch.Len(); i++ {
+		rows, err := br.Query()
+		require.NoError(t, err)
+
+		var account Account
+		err = pgxscan.ScanOne(&account, rows)
+		require.NoError(t, err)
+		accounts = append(accounts, &account)
+	}
+	br.Close()
+
+	require.Len(t, accounts, len(names))
+	for i := 0; i < len(names); i++ {
+		assert.Equal(t, names[i], accounts[i].Name)
+	}
+}
+
+func TestSugarBatchQuery(t *testing.T) {
+	ctx := context.Background()
+
+	names := []string{}
+	for i := 0; i < 10; i++ {
+		names = append(names, fmt.Sprintf("user-%d", i))
+	}
+
+	queries := pgkit.Queries{}
+	for _, name := range names {
+		queries.Add(DB.SQL.Select("*").From("accounts").Where(pgkit.Cond{"name": name}))
+	}
+
+	batchResults, batchLen, err := DB.Query.BatchQuery(ctx, queries)
+	require.NoError(t, err)
+
+	defer batchResults.Close()
+
+	var accounts []*Account
+
+	for i := 0; i < batchLen; i++ {
+		rows, err := batchResults.Query()
+		require.NoError(t, err)
+
+		var account Account
+		err = pgxscan.ScanOne(&account, rows)
+		require.NoError(t, err)
+		accounts = append(accounts, &account)
+	}
+
+	require.Len(t, accounts, len(names))
+	for i := 0; i < len(names); i++ {
+		assert.Equal(t, names[i], accounts[i].Name)
+	}
+
+	/*
+		err := DB.Query.BatchGetAll(ctx, queries, &accounts)
+		require.NoError(t, err)
+
+		// batchRows, err := DB.Query.BatchQuery(ctx, queries)
+		// require.NoError(t, err)
+
+		// for _, rows := range batchRows {
+		// 	var account Account
+		// 	err := pgxscan.ScanOne(&account, rows)
+		// 	require.NoError(t, err)
+		// 	accounts = append(accounts, &account)
+		// }
+
+		require.Len(t, accounts, len(names))
+		for i := 0; i < len(names); i++ {
+			assert.Equal(t, names[i], accounts[i].Name)
+		}*/
+}
