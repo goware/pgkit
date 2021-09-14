@@ -30,6 +30,8 @@ type Config struct {
 	MaxConns        int32  `toml:"max_conns"`
 	MinConns        int32  `toml:"min_conns"`
 	ConnMaxLifetime string `toml:"conn_max_lifetime"` // ie. "1800s" or "1h"
+
+	Override func(cfg *pgx.ConnConfig) `toml:"-"`
 }
 
 func Connect(appName string, cfg Config) (*DB, error) {
@@ -56,6 +58,11 @@ func Connect(appName string, cfg Config) (*DB, error) {
 	poolCfg.MaxConnIdleTime = time.Minute * 30
 
 	poolCfg.HealthCheckPeriod = time.Minute
+
+	// override settings on *pgx.ConnConfig object
+	if cfg.Override != nil {
+		cfg.Override(poolCfg.ConnConfig)
+	}
 
 	return ConnectWithPGX(appName, poolCfg)
 }
