@@ -1,8 +1,10 @@
 package pgkit
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"strings"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/georgysavva/scany/pgxscan"
@@ -224,4 +226,130 @@ func (q *Queries) Add(query Sqlizer) {
 
 func (q Queries) Len() int {
 	return len(q)
+}
+
+// RawSQL allows you to build queries by hand easily. Note, it will auto-replace `?`` placeholders
+// to postgres $X format. As well, if you run the same query over and over, consider to use
+// `RawQuery(..)` instead, as it's a cached version of RawSQL.
+type RawSQL struct {
+	Query     string
+	Args      []interface{}
+	statement bool
+	err       error
+}
+
+func (r RawSQL) Prepare(query string) (string, int, error) {
+	if query == "" {
+		return "", 0, fmt.Errorf("pgkit: empty query")
+	}
+
+	n := strings.Count(query, "?")
+	if !r.statement && n != len(r.Args) {
+		return "", 0, fmt.Errorf("pgkit: expecting %d args but received %d", n, len(r.Args))
+	}
+
+	parts := strings.Split(query, "?")
+
+	q := bytes.Buffer{}
+	for i, p := range parts {
+		if p == "" {
+			continue
+		}
+		q.WriteString(p)
+		if i < n {
+			q.WriteString(fmt.Sprintf("$%d", i+1))
+		}
+	}
+
+	return q.String(), n, nil
+}
+
+func (r RawSQL) Err() error {
+	return r.err
+}
+
+func (r RawSQL) ToSql() (string, []interface{}, error) {
+	if r.Query == "" {
+		return "", nil, fmt.Errorf("pgkit: empty query called with ToSql")
+	}
+
+	if r.err != nil {
+		// error may have occured somewhere when building the query
+		return "", nil, r.err
+	}
+
+	if r.statement {
+		// for statement queries, we assume its prepared correctly by RawStatement
+		return r.Query, r.Args, nil
+	}
+
+	if r.Args == nil || len(r.Args) == 0 {
+		return r.Query, r.Args, nil // assume no params passed
+	}
+
+	q, _, err := r.Prepare(r.Query)
+	if err != nil {
+		return "", nil, err
+	}
+
+	// NOTE: below doesnt appear to be necessary, the driver below will do it
+	// args := make([]interface{}, len(r.Args))
+	// for i, arg := range r.Args {
+	// 	v, ok := arg.(driver.Valuer)
+	// 	if ok {
+	// 		args[i] = v
+	// 	} else {
+	// 		args[i] = arg
+	// 	}
+	// }
+
+	return q, r.Args, nil
+}
+
+// RawStatement allows you to build query statements by hand, where the query will remain the same
+// but the arguments can change. The number of arguments must always be the same.
+type RawStatement struct {
+	query   RawSQL
+	numArgs int
+	err     error
+}
+
+func (r RawStatement) Err() error {
+	return r.err
+}
+
+func (r RawStatement) GetQuery() string {
+	return r.query.Query
+}
+
+func (r RawStatement) NumArgs() int {
+	return r.numArgs
+}
+
+func (r RawStatement) Build(args ...interface{}) Sqlizer {
+	if len(args) != r.numArgs {
+		return RawSQL{err: fmt.Errorf("pgkit: invalid arguments passed to statement, expecting %d args but received %d", r.numArgs, len(args))}
+	}
+	return RawSQL{Query: r.query.Query, Args: args, statement: true}
+}
+
+func RawQuery(query string) RawStatement {
+	rs := RawStatement{}
+	rq := RawSQL{Query: query, statement: true}
+
+	q, n, err := rq.Prepare(query)
+	if err != nil {
+		rs.query = rq
+		rs.err = err
+		return rs
+	}
+
+	rq.Query = q
+	rs.query = rq
+	rs.numArgs = n
+	return rs
+}
+
+func RawQueryf(queryFormat string, a ...interface{}) RawStatement {
+	return RawQuery(fmt.Sprintf(queryFormat, a...))
 }

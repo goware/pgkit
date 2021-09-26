@@ -740,3 +740,44 @@ func TestSugarBatchQuery(t *testing.T) {
 			assert.Equal(t, names[i], accounts[i].Name)
 		}*/
 }
+
+func TestRawSQLQuery(t *testing.T) {
+	// q := pgkit.RawSQL{Query: "SELECT * FROM accounts WHERE name=? OR name=?", Args: []interface{}{"user-1", "user-2"}}
+	q := pgkit.RawSQL{Query: "SELECT * FROM accounts WHERE name IN (?,?) OR name=?", Args: []interface{}{"user-1", "user-2", "user-3"}}
+
+	// q := DB.SQL.Select("*").From("accounts").Where(sq.Eq{"name": []string{"user-1", "user-2"}})
+
+	sql, args, err := q.ToSql()
+	// fmt.Println("sql", sql)
+	// fmt.Println("args", args)
+	require.NoError(t, err)
+	require.NotEmpty(t, sql)
+	require.NotEmpty(t, args)
+
+	accounts := []*Account{}
+	err = DB.Query.GetAll(context.Background(), q, &accounts)
+	require.NoError(t, err)
+	require.Len(t, accounts, 3)
+}
+
+func TestRawStatementQuery(t *testing.T) {
+	stmt := pgkit.RawQuery("SELECT * FROM accounts WHERE name IN (?,?)")
+
+	require.NoError(t, stmt.Err())
+	require.NotEmpty(t, stmt.GetQuery())
+	require.Equal(t, 2, stmt.NumArgs())
+
+	q := stmt.Build("user-1", "user-2")
+
+	sql, args, err := q.ToSql()
+	// fmt.Println("sql", sql)
+	// fmt.Println("args", args)
+	require.NoError(t, err)
+	require.NotEmpty(t, sql)
+	require.NotEmpty(t, args)
+
+	accounts := []*Account{}
+	err = DB.Query.GetAll(context.Background(), q, &accounts)
+	require.NoError(t, err)
+	require.Len(t, accounts, 2)
+}
