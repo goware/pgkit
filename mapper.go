@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/goware/pgkit/internal/reflectx"
+	"github.com/goware/pgkit/v2/internal/reflectx"
 )
 
 const (

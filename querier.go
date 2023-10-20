@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/georgysavva/scany/pgxscan"
-	"github.com/jackc/pgconn"
-	"github.com/jackc/pgx/v4"
-	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/georgysavva/scany/v2/pgxscan"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Querier struct {
@@ -22,12 +22,12 @@ type Querier struct {
 func (q *Querier) Exec(ctx context.Context, query Sqlizer) (pgconn.CommandTag, error) {
 	// check for query errors
 	if getErr, ok := query.(hasErr); ok && getErr.Err() != nil {
-		return nil, wrapErr(getErr.Err())
+		return pgconn.CommandTag{}, wrapErr(getErr.Err())
 	}
 
 	sql, args, err := query.ToSql()
 	if err != nil {
-		return nil, wrapErr(err)
+		return pgconn.CommandTag{}, wrapErr(err)
 	}
 
 	var tag pgconn.CommandTag
@@ -38,7 +38,7 @@ func (q *Querier) Exec(ctx context.Context, query Sqlizer) (pgconn.CommandTag, e
 	}
 
 	if err != nil {
-		return nil, wrapErr(err)
+		return pgconn.CommandTag{}, wrapErr(err)
 	}
 	return tag, nil
 }
@@ -228,7 +228,7 @@ func (q Queries) Len() int {
 	return len(q)
 }
 
-// RawSQL allows you to build queries by hand easily. Note, it will auto-replace `?`` placeholders
+// RawSQL allows you to build queries by hand easily. Note, it will auto-replace `?“ placeholders
 // to postgres $X format. As well, if you run the same query over and over, consider to use
 // `RawQuery(..)` instead, as it's a cached version of RawSQL.
 type RawSQL struct {

@@ -7,9 +7,9 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/jackc/pgx/v4"
-	"github.com/jackc/pgx/v4/pgxpool"
-	"github.com/jackc/pgx/v4/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 type DB struct {
@@ -68,7 +68,7 @@ func Connect(appName string, cfg Config) (*DB, error) {
 }
 
 func ConnectWithPGX(appName string, pgxConfig *pgxpool.Config) (*DB, error) {
-	pool, err := pgxpool.ConnectConfig(context.Background(), pgxConfig)
+	pool, err := pgxpool.NewWithConfig(context.Background(), pgxConfig)
 	if err != nil {
 		return nil, fmt.Errorf("pgkit: failed to connect to db: %w", err)
 	}

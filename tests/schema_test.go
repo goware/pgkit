@@ -1,10 +1,9 @@
 package pgkit_test
 
 import (
-	"database/sql/driver"
 	"time"
 
-	"github.com/goware/pgkit/dbtype"
+	"github.com/goware/pgkit/v2/dbtype"
 )
 
 type Account struct {
@@ -26,9 +25,9 @@ type Review struct {
 }
 
 type Log struct {
-	ID      int64           `db:"id,omitempty"`
-	Message string          `db:"message"`
-	Etc     dbtype.JSONBMap `db:"etc"` // using JSONB postgres datatype
+	ID      int64                  `db:"id,omitempty"`
+	Message string                 `db:"message"`
+	Etc     map[string]interface{} `db:"etc"` // using JSONB postgres datatype
 }
 
 type Stat struct {
@@ -49,12 +48,4 @@ type Content struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
 	Views int64  `json:"views"`
-}
-
-func (m Content) Value() (driver.Value, error) {
-	return dbtype.JSONBValue(m)
-}
-
-func (m *Content) Scan(src interface{}) error {
-	return dbtype.ScanJSONB(m, src)
 }

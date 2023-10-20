@@ -11,10 +11,10 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/georgysavva/scany/pgxscan"
-	"github.com/goware/pgkit"
-	"github.com/goware/pgkit/dbtype"
-	"github.com/jackc/pgx/v4"
+	"github.com/georgysavva/scany/v2/pgxscan"
+	"github.com/goware/pgkit/v2"
+	"github.com/goware/pgkit/v2/dbtype"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -244,7 +244,7 @@ func TestQueryWithNoResults(t *testing.T) {
 func TestRowsWithJSONB(t *testing.T) {
 	truncateTable(t, "logs")
 
-	etc := dbtype.JSONBMap{"a": 1}
+	etc := map[string]interface{}{"a": 1}
 
 	// Insert
 	q1 := DB.SQL.Insert("logs").Columns("message", "etc").Values("hi", etc)
@@ -265,7 +265,7 @@ func TestRecordsWithJSONB(t *testing.T) {
 
 	log := &Log{
 		Message: "recording",
-		Etc:     dbtype.JSONBMap{"place": "Toronto"},
+		Etc:     map[string]interface{}{"place": "Toronto"},
 	}
 
 	// Insert
@@ -492,7 +492,7 @@ func TestTransactionBasics(t *testing.T) {
 	truncateTable(t, "accounts")
 
 	// Insert some rows + commit
-	DB.Conn.BeginFunc(context.Background(), func(tx pgx.Tx) error {
+	pgx.BeginFunc(context.Background(), DB.Conn, func(tx pgx.Tx) error {
 		// Insert 1
 		insertq, args, err := DB.SQL.Insert("accounts").Columns("name", "disabled").Values("peter", false).ToSql()
 		require.NoError(t, err)
@@ -522,7 +522,7 @@ func TestTransactionBasics(t *testing.T) {
 	}
 
 	// Insert some rows -- but rollback
-	DB.Conn.BeginFunc(context.Background(), func(tx pgx.Tx) error {
+	pgx.BeginFunc(context.Background(), DB.Conn, func(tx pgx.Tx) error {
 		// Insert 1
 		insertq, args, err := DB.SQL.Insert("accounts").Columns("name", "disabled").Values("zelda", false).ToSql()
 		require.NoError(t, err)
@@ -553,7 +553,7 @@ func TestTransactionBasics(t *testing.T) {
 func TestSugarTransaction(t *testing.T) {
 	truncateTable(t, "accounts")
 
-	DB.Conn.BeginFunc(context.Background(), func(tx pgx.Tx) error {
+	pgx.BeginFunc(context.Background(), DB.Conn, func(tx pgx.Tx) error {
 		rec1 := &Account{
 			Name:     "peter",
 			Disabled: false,
@@ -592,7 +592,7 @@ func TestBatchTransaction(t *testing.T) {
 
 	truncateTable(t, "accounts")
 
-	err := DB.Conn.BeginFunc(ctx, func(tx pgx.Tx) error {
+	err := pgx.BeginFunc(context.Background(), DB.Conn, func(tx pgx.Tx) error {
 		batch := &pgx.Batch{}
 
 		rec := &Account{}
@@ -632,7 +632,7 @@ func TestSugarBatchTransaction(t *testing.T) {
 
 	truncateTable(t, "accounts")
 
-	err := DB.Conn.BeginFunc(ctx, func(tx pgx.Tx) error {
+	err := pgx.BeginFunc(context.Background(), DB.Conn, func(tx pgx.Tx) error {
 		queries := pgkit.Queries{}
 
 		for i := 0; i < 10; i++ {
