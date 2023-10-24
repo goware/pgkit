@@ -207,6 +207,7 @@ func TestSugarQueryWithNoResults(t *testing.T) {
 	var account interface{}
 	err := DB.Query.GetOne(context.Background(), q, &account)
 	assert.True(t, errors.Is(err, pgkit.ErrNoRows))
+	assert.True(t, errors.Is(err, pgx.ErrNoRows))
 }
 
 func TestQueryWithNoResults(t *testing.T) {
