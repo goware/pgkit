@@ -16,6 +16,7 @@ CREATE TABLE reviews (
 CREATE TABLE logs (
   id SERIAL PRIMARY KEY,
   message VARCHAR,
+  raw_data bytea,
   etc JSONB
 );
 

@@ -25,8 +25,10 @@ type Review struct {
 }
 
 type Log struct {
-	ID      int64                  `db:"id,omitempty"`
-	Message string                 `db:"message"`
+	ID      int64  `db:"id,omitempty"`
+	Message string `db:"message"`
+	// RawData []byte                 `db:"raw_data"`
+	RawData dbtype.HexBytes        `db:"raw_data"`
 	Etc     map[string]interface{} `db:"etc"` // using JSONB postgres datatype
 }
 

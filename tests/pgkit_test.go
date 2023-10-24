@@ -2,6 +2,7 @@ package pgkit_test
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -265,6 +266,8 @@ func TestRecordsWithJSONB(t *testing.T) {
 
 	log := &Log{
 		Message: "recording",
+		// RawData: []byte{5, 6, 7, 8},
+		RawData: dbtype.HexBytes{5, 6, 7, 8},
 		Etc:     map[string]interface{}{"place": "Toronto"},
 	}
 
@@ -280,6 +283,8 @@ func TestRecordsWithJSONB(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "recording", lout.Message)
 	assert.Equal(t, "Toronto", lout.Etc["place"])
+	// assert.Equal(t, []byte{5, 6, 7, 8}, lout.RawData)
+	assert.Equal(t, dbtype.HexBytes{5, 6, 7, 8}, lout.RawData)
 }
 
 func TestRecordsWithJSONStruct(t *testing.T) {
@@ -780,4 +785,10 @@ func TestRawStatementQuery(t *testing.T) {
 	err = DB.Query.GetAll(context.Background(), q, &accounts)
 	require.NoError(t, err)
 	require.Len(t, accounts, 2)
+}
+
+func hexEncode(b []byte) string {
+	enc := make([]byte, len(b)*2)
+	hex.Encode(enc[0:], b)
+	return string(enc)
 }
