@@ -19,7 +19,7 @@ type DB struct {
 }
 
 func (d *DB) TxQuery(tx pgx.Tx) *Querier {
-	return &Querier{tx: tx, SQL: d.SQL}
+	return &Querier{tx: tx, SQL: d.SQL, pool: d.Conn}
 }
 
 type Config struct {
