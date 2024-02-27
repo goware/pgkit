@@ -93,8 +93,17 @@ func (q *Querier) GetAll(ctx context.Context, query Sqlizer, dest interface{}) e
 	return wrapErr(pgxscan.ScanAll(dest, rows))
 }
 
-func (q *Querier) GetOne(ctx context.Context, query sq.SelectBuilder, dest interface{}) error {
-	rows, err := q.QueryRows(ctx, query.Limit(1))
+func (q *Querier) GetOne(ctx context.Context, query Sqlizer, dest interface{}) error {
+	switch builder := query.(type) {
+	case sq.SelectBuilder:
+		query = builder.Limit(1)
+	case sq.UpdateBuilder:
+		query = builder.Limit(1)
+	case sq.DeleteBuilder:
+		query = builder.Limit(1)
+	}
+
+	rows, err := q.QueryRows(ctx, query)
 	if err != nil {
 		return wrapErr(err)
 	}
