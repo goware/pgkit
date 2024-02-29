@@ -97,8 +97,6 @@ func (q *Querier) GetOne(ctx context.Context, query Sqlizer, dest interface{}) e
 	switch builder := query.(type) {
 	case sq.SelectBuilder:
 		query = builder.Limit(1)
-	case sq.UpdateBuilder:
-		query = builder.Limit(1)
 	case sq.DeleteBuilder:
 		query = builder.Limit(1)
 	}
