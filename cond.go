@@ -30,6 +30,7 @@ func (c condExpr) ToSql() (string, []interface{}, error) {
 	if c.v == nil {
 		return "", nil, nil
 	}
+
 	return "?", []interface{}{c.v}, nil
 }
 
@@ -68,9 +69,11 @@ func (n *condNode) ToSql() (string, []interface{}, error) {
 func compileNodes(nodes []squirrel.Sqlizer) (q string, args []interface{}, err error) {
 	for i, node := range nodes {
 		qn, argsn, err := node.ToSql()
+
 		if err != nil {
 			return "", nil, fmt.Errorf("error compiling node %d: %v", i, err)
 		}
+
 		q += qn
 		args = append(args, argsn...)
 	}
@@ -82,9 +85,11 @@ func compileOperator(leaf interface{}) string {
 	if expr, ok := leaf.(*condExpr); ok {
 		return " " + expr.op
 	}
+
 	if _, ok := leaf.(squirrel.Sqlizer); ok {
 		return ""
 	}
+
 	return " ="
 }
 
@@ -105,9 +110,11 @@ type Cond map[interface{}]interface{}
 
 func (c Cond) ToSql() (string, []interface{}, error) {
 	nodes := []squirrel.Sqlizer{}
+
 	for left, right := range c {
 		nodes = append(nodes, &condNode{left, right})
 	}
+
 	return compileNodes(nodes)
 }
 
@@ -177,6 +184,7 @@ func In(v ...interface{}) squirrel.Sqlizer {
 		if len(v) == 0 {
 			return "IN ()", nil, nil
 		}
+
 		return "IN (?" + strings.Repeat(", ?", len(v)-1) + ")", v, nil
 	})
 }
@@ -187,6 +195,7 @@ func NotIn(v ...interface{}) squirrel.Sqlizer {
 		if len(v) == 0 {
 			return "NOT IN ()", nil, nil
 		}
+
 		return "NOT IN (?" + strings.Repeat(", ?", len(v)-1) + ")", v, nil
 	})
 }
@@ -199,6 +208,7 @@ func AnyOf(v interface{}) squirrel.Sqlizer {
 		if rv.Kind() != reflect.Slice {
 			return "", nil, fmt.Errorf("value must be a slice")
 		}
+
 		if rv.Len() == 0 {
 			return "IN ()", nil, nil
 		}
@@ -217,6 +227,7 @@ func AnyOf(v interface{}) squirrel.Sqlizer {
 func NotAnyOf(v interface{}) squirrel.Sqlizer {
 	return sqlExprFn(func() (string, []interface{}, error) {
 		rv := reflect.ValueOf(v)
+
 		if rv.Kind() != reflect.Slice {
 			return "", nil, fmt.Errorf("value must be a slice")
 		}
@@ -226,6 +237,7 @@ func NotAnyOf(v interface{}) squirrel.Sqlizer {
 		}
 
 		vs := make([]interface{}, rv.Len())
+
 		for i := 0; i < rv.Len(); i++ {
 			vs[i] = rv.Index(i).Interface()
 		}
