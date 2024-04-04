@@ -1,4 +1,4 @@
-package pgkit
+package db
 
 import (
 	"fmt"
@@ -6,6 +6,16 @@ import (
 
 	"github.com/Masterminds/squirrel"
 )
+
+const paramPlaceholder = "?"
+
+// TODO(xiam): for simplification, perhaps join sqlExpr and binaryExprLeaf into
+// a single type, or force regular squirrel.Sqlizer to be always wrapped as a
+// subquery.
+
+type And = squirrel.And
+
+type Or = squirrel.Or
 
 type sqlExpr struct {
 	fn func() (string, []interface{}, error)
@@ -32,6 +42,8 @@ func (c binaryExprLeaf) ToSql() (string, []interface{}, error) {
 
 	return "?", []interface{}{c.v}, nil
 }
+
+var _ squirrel.Sqlizer = &binaryExprLeaf{}
 
 type binaryExprNode struct {
 	left  interface{}
@@ -85,7 +97,7 @@ func compileOperator(leaf interface{}) string {
 		return " " + expr.op
 	}
 
-	if _, ok := leaf.(squirrel.Sqlizer); ok {
+	if _, ok := leaf.(*sqlExpr); ok {
 		return ""
 	}
 
@@ -97,8 +109,20 @@ func compileLeaf(leaf interface{}) (string, []interface{}, error) {
 		return leaf.(string), nil, nil
 	}
 
+	if expr, ok := leaf.(*binaryExprLeaf); ok {
+		return expr.ToSql()
+	}
+
+	if expr, ok := leaf.(*sqlExpr); ok {
+		return expr.ToSql()
+	}
+
 	if sqlizer, ok := leaf.(squirrel.Sqlizer); ok {
-		return sqlizer.ToSql()
+		s, args, err := sqlizer.ToSql()
+		if err != nil {
+			return "", nil, fmt.Errorf("error compiling leaf: %w", err)
+		}
+		return "(" + s + ")", args, nil
 	}
 
 	return "?", []interface{}{leaf}, nil
@@ -179,38 +203,45 @@ func NotILike(v interface{}) squirrel.Sqlizer {
 
 // In represents an IN operator. The value must be variadic.
 func In[T interface{}](v ...T) squirrel.Sqlizer {
-	return sqlExprFn(func() (string, []interface{}, error) {
-		if len(v) == 0 {
-			return "IN ()", nil, nil
-		}
-
-		args := make([]interface{}, len(v))
-		for i, val := range v {
-			args[i] = val
-		}
-
-		return "IN (?" + strings.Repeat(", ?", len(v)-1) + ")", args, nil
-	})
+	return Func[T]("IN", v...)
 }
 
 // NotIn represents a NOT IN operator. The value must be variadic.
 func NotIn[T interface{}](v ...T) squirrel.Sqlizer {
-	return sqlExprFn(func() (string, []interface{}, error) {
-		if len(v) == 0 {
-			return "NOT IN ()", nil, nil
-		}
-
-		args := make([]interface{}, len(v))
-		for i, val := range v {
-			args[i] = val
-		}
-
-		return "NOT IN (?" + strings.Repeat(", ?", len(v)-1) + ")", args, nil
-	})
+	return Func[T]("NOT IN", v...)
 }
 
+// Raw represents a raw SQL expression.
 func Raw(sql string, args ...interface{}) squirrel.Sqlizer {
 	return sqlExprFn(func() (string, []interface{}, error) {
 		return sql, args, nil
+	})
+}
+
+// Func represents a SQL function call.
+func Func[T interface{}](name string, params ...T) squirrel.Sqlizer {
+	return sqlExprFn(func() (string, []interface{}, error) {
+		if len(params) == 0 {
+			return name + " ()", nil, nil
+		}
+
+		places := make([]string, len(params))
+		args := make([]interface{}, 0, len(params))
+
+		for i, param := range params {
+			if sqlizer, ok := interface{}(param).(squirrel.Sqlizer); ok {
+				paramSql, paramArgs, err := sqlizer.ToSql()
+				if err != nil {
+					return "", nil, fmt.Errorf("%s: error compiling argument %d: %w", name, i, err)
+				}
+				places[i] = paramSql
+				args = append(args, paramArgs...)
+			} else {
+				places[i] = paramPlaceholder
+				args = append(args, param)
+			}
+		}
+
+		return name + " (" + strings.Join(places, ", ") + ")", args, nil
 	})
 }

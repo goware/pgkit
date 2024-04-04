@@ -14,6 +14,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/goware/pgkit/v2"
+	"github.com/goware/pgkit/v2/db"
 	"github.com/goware/pgkit/v2/dbtype"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
@@ -702,7 +703,7 @@ func TestSugarBatchQuery(t *testing.T) {
 
 	queries := pgkit.Queries{}
 	for _, name := range names {
-		queries.Add(DB.SQL.Select("*").From("accounts").Where(pgkit.Cond{"name": name}))
+		queries.Add(DB.SQL.Select("*").From("accounts").Where(db.Cond{"name": name}))
 	}
 
 	batchResults, batchLen, err := DB.Query.BatchQuery(ctx, queries)
@@ -792,150 +793,4 @@ func hexEncode(b []byte) string {
 	enc := make([]byte, len(b)*2)
 	hex.Encode(enc[0:], b)
 	return string(enc)
-}
-
-func TestCond(t *testing.T) {
-
-	t.Run("equal to", func(t *testing.T) {
-		cond := pgkit.Cond{"one": 1}
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
-		assert.Equal(t, []interface{}{1}, args)
-		assert.Equal(t, "one = ?", s)
-	})
-
-	t.Run("equal to (inverted)", func(t *testing.T) {
-		cond := pgkit.Cond{1: "one"}
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
-		assert.Equal(t, []interface{}{1}, args)
-		assert.Equal(t, "? = one", s)
-	})
-
-	t.Run("less than or equal", func(t *testing.T) {
-		cond := pgkit.Cond{"id": pgkit.Lte(1)}
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
-		assert.Equal(t, []interface{}{1}, args)
-		assert.Equal(t, "id <= ?", s)
-	})
-
-	t.Run("single node", func(t *testing.T) {
-		cond := pgkit.Lte(1)
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
-		assert.Equal(t, []interface{}{1}, args)
-		assert.Equal(t, "?", s)
-	})
-
-	t.Run("IS NULL", func(t *testing.T) {
-		cond := pgkit.Cond{"status": pgkit.IsNull()}
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
-
-		assert.Empty(t, args)
-		assert.Equal(t, "status IS NULL", s)
-	})
-
-	t.Run("IN with slice", func(t *testing.T) {
-		cond := pgkit.Cond{"list": pgkit.In(1, 2, 3)}
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
-
-		assert.Equal(t, []interface{}{1, 2, 3}, args)
-		assert.Equal(t, "list IN (?, ?, ?)", s)
-	})
-
-	t.Run("NOT IN", func(t *testing.T) {
-		cond := pgkit.Cond{"list": pgkit.NotIn("Czech Republic", "Slovakia")}
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
-
-		assert.Equal(t, []interface{}{"Czech Republic", "Slovakia"}, args)
-		assert.Equal(t, "list NOT IN (?, ?)", s)
-	})
-
-	t.Run("IN with empty slice", func(t *testing.T) {
-		cond := pgkit.Cond{"list": pgkit.In[any]()}
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
-
-		assert.Empty(t, args)
-		assert.Equal(t, "list IN ()", s)
-	})
-
-	t.Run("NOT IN with empty slice", func(t *testing.T) {
-		cond := pgkit.Cond{"list": pgkit.NotIn[any]()}
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
-
-		assert.Empty(t, args)
-		assert.Equal(t, "list NOT IN ()", s)
-	})
-
-	t.Run("IN with slice of strings", func(t *testing.T) {
-		{
-			cond := pgkit.Cond{"list": pgkit.In[string]("Czech Republic", "Slovakia")}
-			s, args, err := cond.ToSql()
-			require.NoError(t, err)
-
-			assert.Equal(t, []interface{}{"Czech Republic", "Slovakia"}, args)
-			assert.Equal(t, "list IN (?, ?)", s)
-		}
-
-		{
-			cond := pgkit.Cond{"list": pgkit.In[interface{}]("Czech Republic", "Slovakia")}
-			s, args, err := cond.ToSql()
-			require.NoError(t, err)
-
-			assert.Equal(t, []interface{}{"Czech Republic", "Slovakia"}, args)
-			assert.Equal(t, "list IN (?, ?)", s)
-		}
-
-		{
-			list := []string{"Czech Republic", "Slovakia"}
-			cond := pgkit.Cond{"list": pgkit.NotIn[string](list...)}
-			s, args, err := cond.ToSql()
-			require.NoError(t, err)
-
-			assert.Equal(t, []interface{}{"Czech Republic", "Slovakia"}, args)
-			assert.Equal(t, "list NOT IN (?, ?)", s)
-		}
-	})
-
-	t.Run("raw condition", func(t *testing.T) {
-		cond := pgkit.Cond{"salary": pgkit.Raw("> ANY(SELECT salary FROM managers WHERE id < ?)", 23)}
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
-
-		assert.Equal(t, []interface{}{23}, args)
-		assert.Equal(t, "salary > ANY(SELECT salary FROM managers WHERE id < ?)", s)
-	})
-
-	t.Run("LIKE with string value", func(t *testing.T) {
-		cond := pgkit.Cond{"name": pgkit.Like("john")}
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
-
-		assert.Equal(t, []interface{}{"john"}, args)
-		assert.Equal(t, "name LIKE ?", s)
-	})
-
-	t.Run("ANY(list) = 1", func(t *testing.T) {
-		cond := pgkit.Cond{pgkit.Raw("ANY(list)"): 1}
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
-
-		assert.Equal(t, []interface{}{1}, args)
-		assert.Equal(t, "ANY(list) = ?", s)
-	})
-
-	t.Run("ANY(list) <> 1", func(t *testing.T) {
-		cond := pgkit.Cond{pgkit.Raw("ANY(list)"): pgkit.NotEq(1)}
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
-
-		assert.Equal(t, []interface{}{1}, args)
-		assert.Equal(t, "ANY(list) <> ?", s)
-	})
 }
