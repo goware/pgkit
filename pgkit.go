@@ -121,9 +121,3 @@ func wrapErr(err error) error {
 		return fmt.Errorf("pgkit: %w", err)
 	}
 }
-
-type Cond map[string]interface{}
-
-func (c Cond) ToSql() (string, []interface{}, error) {
-	return sq.Eq(c).ToSql()
-}

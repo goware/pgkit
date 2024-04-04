@@ -14,6 +14,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/goware/pgkit/v2"
+	"github.com/goware/pgkit/v2/db"
 	"github.com/goware/pgkit/v2/dbtype"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
@@ -702,7 +703,7 @@ func TestSugarBatchQuery(t *testing.T) {
 
 	queries := pgkit.Queries{}
 	for _, name := range names {
-		queries.Add(DB.SQL.Select("*").From("accounts").Where(pgkit.Cond{"name": name}))
+		queries.Add(DB.SQL.Select("*").From("accounts").Where(db.Cond{"name": name}))
 	}
 
 	batchResults, batchLen, err := DB.Query.BatchQuery(ctx, queries)
