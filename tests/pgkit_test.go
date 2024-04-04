@@ -856,7 +856,7 @@ func TestCond(t *testing.T) {
 	})
 
 	t.Run("IN with empty slice", func(t *testing.T) {
-		cond := pgkit.Cond{"list": pgkit.In()}
+		cond := pgkit.Cond{"list": pgkit.In[any]()}
 		s, args, err := cond.ToSql()
 		require.NoError(t, err)
 
@@ -865,7 +865,7 @@ func TestCond(t *testing.T) {
 	})
 
 	t.Run("NOT IN with empty slice", func(t *testing.T) {
-		cond := pgkit.Cond{"list": pgkit.NotIn()}
+		cond := pgkit.Cond{"list": pgkit.NotIn[any]()}
 		s, args, err := cond.ToSql()
 		require.NoError(t, err)
 
@@ -874,18 +874,33 @@ func TestCond(t *testing.T) {
 	})
 
 	t.Run("IN with slice of strings", func(t *testing.T) {
-		cond := pgkit.Cond{"list": pgkit.AnyOf([]string{"Czech Republic", "Slovakia"})}
-		s, args, err := cond.ToSql()
-		require.NoError(t, err)
+		{
+			cond := pgkit.Cond{"list": pgkit.In[string]("Czech Republic", "Slovakia")}
+			s, args, err := cond.ToSql()
+			require.NoError(t, err)
 
-		assert.Equal(t, []interface{}{"Czech Republic", "Slovakia"}, args)
-		assert.Equal(t, "list IN (?, ?)", s)
-	})
+			assert.Equal(t, []interface{}{"Czech Republic", "Slovakia"}, args)
+			assert.Equal(t, "list IN (?, ?)", s)
+		}
 
-	t.Run("IN with bad args", func(t *testing.T) {
-		cond := pgkit.Cond{"list": pgkit.AnyOf("a")}
-		_, _, err := cond.ToSql()
-		require.Error(t, err)
+		{
+			cond := pgkit.Cond{"list": pgkit.In[interface{}]("Czech Republic", "Slovakia")}
+			s, args, err := cond.ToSql()
+			require.NoError(t, err)
+
+			assert.Equal(t, []interface{}{"Czech Republic", "Slovakia"}, args)
+			assert.Equal(t, "list IN (?, ?)", s)
+		}
+
+		{
+			list := []string{"Czech Republic", "Slovakia"}
+			cond := pgkit.Cond{"list": pgkit.NotIn[string](list...)}
+			s, args, err := cond.ToSql()
+			require.NoError(t, err)
+
+			assert.Equal(t, []interface{}{"Czech Republic", "Slovakia"}, args)
+			assert.Equal(t, "list NOT IN (?, ?)", s)
+		}
 	})
 
 	t.Run("raw condition", func(t *testing.T) {

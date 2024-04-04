@@ -2,7 +2,6 @@ package pgkit
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/Masterminds/squirrel"
@@ -20,13 +19,13 @@ func sqlExprFn(fn func() (string, []interface{}, error)) *sqlExpr {
 	return &sqlExpr{fn}
 }
 
-type condExpr struct {
+type binaryExprLeaf struct {
 	op string
 
 	v interface{}
 }
 
-func (c condExpr) ToSql() (string, []interface{}, error) {
+func (c binaryExprLeaf) ToSql() (string, []interface{}, error) {
 	if c.v == nil {
 		return "", nil, nil
 	}
@@ -34,12 +33,12 @@ func (c condExpr) ToSql() (string, []interface{}, error) {
 	return "?", []interface{}{c.v}, nil
 }
 
-type condNode struct {
+type binaryExprNode struct {
 	left  interface{}
 	right interface{}
 }
 
-func (n *condNode) ToSql() (string, []interface{}, error) {
+func (n *binaryExprNode) ToSql() (string, []interface{}, error) {
 	_, leftIsString := n.left.(string)
 	_, rightIsExpr := n.right.(squirrel.Sqlizer)
 
@@ -82,7 +81,7 @@ func compileNodes(nodes []squirrel.Sqlizer) (q string, args []interface{}, err e
 }
 
 func compileOperator(leaf interface{}) string {
-	if expr, ok := leaf.(*condExpr); ok {
+	if expr, ok := leaf.(*binaryExprLeaf); ok {
 		return " " + expr.op
 	}
 
@@ -112,7 +111,7 @@ func (c Cond) ToSql() (string, []interface{}, error) {
 	nodes := []squirrel.Sqlizer{}
 
 	for left, right := range c {
-		nodes = append(nodes, &condNode{left, right})
+		nodes = append(nodes, &binaryExprNode{left, right})
 	}
 
 	return compileNodes(nodes)
@@ -120,129 +119,93 @@ func (c Cond) ToSql() (string, []interface{}, error) {
 
 // Eq represents an equality comparison.
 func Eq(v interface{}) squirrel.Sqlizer {
-	return &condExpr{"=", v}
+	return &binaryExprLeaf{"=", v}
 }
 
 // NotEq represents a not-equal comparison.
 func NotEq(v interface{}) squirrel.Sqlizer {
-	return &condExpr{"<>", v}
+	return &binaryExprLeaf{"<>", v}
 }
 
 // Gt represents a greater-than comparison.
 func Gt(v interface{}) squirrel.Sqlizer {
-	return &condExpr{">", v}
+	return &binaryExprLeaf{">", v}
 }
 
 // Gte represents a greater-than-or-equal comparison.
 func Gte(v interface{}) squirrel.Sqlizer {
-	return &condExpr{">=", v}
+	return &binaryExprLeaf{">=", v}
 }
 
 // Lt represents a less-than comparison.
 func Lt(v interface{}) squirrel.Sqlizer {
-	return &condExpr{"<", v}
+	return &binaryExprLeaf{"<", v}
 }
 
 // Lte represents a less-than-or-equal comparison.
 func Lte(v interface{}) squirrel.Sqlizer {
-	return &condExpr{"<=", v}
+	return &binaryExprLeaf{"<=", v}
 }
 
 // IsNull represents an IS NULL comparison.
 func IsNull() squirrel.Sqlizer {
-	return &condExpr{"IS NULL", nil}
+	return &binaryExprLeaf{"IS NULL", nil}
 }
 
 // IsNotNull represents an IS NOT NULL comparison.
 func IsNotNull() squirrel.Sqlizer {
-	return &condExpr{"IS NOT NULL", nil}
+	return &binaryExprLeaf{"IS NOT NULL", nil}
 }
 
 // Like represents a LIKE comparison.
 func Like(v interface{}) squirrel.Sqlizer {
-	return &condExpr{"LIKE", v}
+	return &binaryExprLeaf{"LIKE", v}
 }
 
 // NotLike represents a NOT LIKE comparison.
 func NotLike(v interface{}) squirrel.Sqlizer {
-	return &condExpr{"NOT LIKE", v}
+	return &binaryExprLeaf{"NOT LIKE", v}
 }
 
 // ILike represents a ILIKE comparison.
 func ILike(v interface{}) squirrel.Sqlizer {
-	return &condExpr{"ILIKE", v}
+	return &binaryExprLeaf{"ILIKE", v}
 }
 
 // NotILike represents a NOT ILIKE comparison.
 func NotILike(v interface{}) squirrel.Sqlizer {
-	return &condExpr{"NOT ILIKE", v}
+	return &binaryExprLeaf{"NOT ILIKE", v}
 }
 
 // In represents an IN operator. The value must be variadic.
-func In(v ...interface{}) squirrel.Sqlizer {
+func In[T interface{}](v ...T) squirrel.Sqlizer {
 	return sqlExprFn(func() (string, []interface{}, error) {
 		if len(v) == 0 {
 			return "IN ()", nil, nil
 		}
 
-		return "IN (?" + strings.Repeat(", ?", len(v)-1) + ")", v, nil
+		args := make([]interface{}, len(v))
+		for i, val := range v {
+			args[i] = val
+		}
+
+		return "IN (?" + strings.Repeat(", ?", len(v)-1) + ")", args, nil
 	})
 }
 
 // NotIn represents a NOT IN operator. The value must be variadic.
-func NotIn(v ...interface{}) squirrel.Sqlizer {
+func NotIn[T interface{}](v ...T) squirrel.Sqlizer {
 	return sqlExprFn(func() (string, []interface{}, error) {
 		if len(v) == 0 {
 			return "NOT IN ()", nil, nil
 		}
 
-		return "NOT IN (?" + strings.Repeat(", ?", len(v)-1) + ")", v, nil
-	})
-}
-
-// AnyOf represents an IN operator. The value must be a slice.
-func AnyOf(v interface{}) squirrel.Sqlizer {
-	return sqlExprFn(func() (string, []interface{}, error) {
-		rv := reflect.ValueOf(v)
-
-		if rv.Kind() != reflect.Slice {
-			return "", nil, fmt.Errorf("value must be a slice")
+		args := make([]interface{}, len(v))
+		for i, val := range v {
+			args[i] = val
 		}
 
-		if rv.Len() == 0 {
-			return "IN ()", nil, nil
-		}
-
-		vs := make([]interface{}, rv.Len())
-
-		for i := 0; i < rv.Len(); i++ {
-			vs[i] = rv.Index(i).Interface()
-		}
-
-		return "IN (?" + strings.Repeat(", ?", len(vs)-1) + ")", vs, nil
-	})
-}
-
-// NotAnyOf represents a NOT IN operator. The value must be a slice.
-func NotAnyOf(v interface{}) squirrel.Sqlizer {
-	return sqlExprFn(func() (string, []interface{}, error) {
-		rv := reflect.ValueOf(v)
-
-		if rv.Kind() != reflect.Slice {
-			return "", nil, fmt.Errorf("value must be a slice")
-		}
-
-		if rv.Len() == 0 {
-			return "NOT IN ()", nil, nil
-		}
-
-		vs := make([]interface{}, rv.Len())
-
-		for i := 0; i < rv.Len(); i++ {
-			vs[i] = rv.Index(i).Interface()
-		}
-
-		return "NOT IN (?" + strings.Repeat(", ?", len(vs)-1) + ")", vs, nil
+		return "NOT IN (?" + strings.Repeat(", ?", len(v)-1) + ")", args, nil
 	})
 }
 
