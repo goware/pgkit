@@ -123,6 +123,21 @@ func Eq(v interface{}) squirrel.Sqlizer {
 	return &condExpr{"=", v}
 }
 
+// NotEq represents a not-equal comparison.
+func NotEq(v interface{}) squirrel.Sqlizer {
+	return &condExpr{"<>", v}
+}
+
+// Gt represents a greater-than comparison.
+func Gt(v interface{}) squirrel.Sqlizer {
+	return &condExpr{">", v}
+}
+
+// Gte represents a greater-than-or-equal comparison.
+func Gte(v interface{}) squirrel.Sqlizer {
+	return &condExpr{">=", v}
+}
+
 // Lt represents a less-than comparison.
 func Lt(v interface{}) squirrel.Sqlizer {
 	return &condExpr{"<", v}
@@ -143,24 +158,14 @@ func IsNotNull() squirrel.Sqlizer {
 	return &condExpr{"IS NOT NULL", nil}
 }
 
-// Gt represents a greater-than comparison.
-func Gt(v interface{}) squirrel.Sqlizer {
-	return &condExpr{">", v}
-}
-
-// Gte represents a greater-than-or-equal comparison.
-func Gte(v interface{}) squirrel.Sqlizer {
-	return &condExpr{">=", v}
-}
-
-// NotEq represents a not-equal comparison.
-func NotEq(v interface{}) squirrel.Sqlizer {
-	return &condExpr{"<>", v}
-}
-
 // Like represents a LIKE comparison.
 func Like(v interface{}) squirrel.Sqlizer {
 	return &condExpr{"LIKE", v}
+}
+
+// NotLike represents a NOT LIKE comparison.
+func NotLike(v interface{}) squirrel.Sqlizer {
+	return &condExpr{"NOT LIKE", v}
 }
 
 // ILike represents a ILIKE comparison.
@@ -171,11 +176,6 @@ func ILike(v interface{}) squirrel.Sqlizer {
 // NotILike represents a NOT ILIKE comparison.
 func NotILike(v interface{}) squirrel.Sqlizer {
 	return &condExpr{"NOT ILIKE", v}
-}
-
-// NotLike represents a NOT LIKE comparison.
-func NotLike(v interface{}) squirrel.Sqlizer {
-	return &condExpr{"NOT LIKE", v}
 }
 
 // In represents an IN operator. The value must be variadic.
