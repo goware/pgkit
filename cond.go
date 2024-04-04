@@ -50,12 +50,12 @@ func (n *condNode) ToSql() (string, []interface{}, error) {
 
 	ql, argsl, err := compileLeaf(n.left)
 	if err != nil {
-		return "", nil, fmt.Errorf("error compiling left side: %v", err)
+		return "", nil, fmt.Errorf("error compiling left side: %w", err)
 	}
 
 	rl, argsr, err := compileLeaf(n.right)
 	if err != nil {
-		return "", nil, fmt.Errorf("error compiling right side: %v", err)
+		return "", nil, fmt.Errorf("error compiling right side: %w", err)
 	}
 
 	// always take operator from right side
@@ -71,7 +71,7 @@ func compileNodes(nodes []squirrel.Sqlizer) (q string, args []interface{}, err e
 		qn, argsn, err := node.ToSql()
 
 		if err != nil {
-			return "", nil, fmt.Errorf("error compiling node %d: %v", i, err)
+			return "", nil, fmt.Errorf("error compiling node %d: %w", i, err)
 		}
 
 		q += qn
