@@ -16,6 +16,7 @@ import (
 type Querier struct {
 	pool *pgxpool.Pool
 	tx   pgx.Tx
+	Scan *pgxscan.API
 	SQL  *StatementBuilder
 }
 
@@ -90,7 +91,7 @@ func (q *Querier) GetAll(ctx context.Context, query Sqlizer, dest interface{}) e
 	if err != nil {
 		return wrapErr(err)
 	}
-	return wrapErr(pgxscan.ScanAll(dest, rows))
+	return wrapErr(q.Scan.ScanAll(dest, rows))
 }
 
 func (q *Querier) GetOne(ctx context.Context, query Sqlizer, dest interface{}) error {
@@ -105,7 +106,7 @@ func (q *Querier) GetOne(ctx context.Context, query Sqlizer, dest interface{}) e
 	if err != nil {
 		return wrapErr(err)
 	}
-	return wrapErr(pgxscan.ScanOne(dest, rows))
+	return wrapErr(q.Scan.ScanOne(dest, rows))
 }
 
 func (q *Querier) BatchExec(ctx context.Context, queries Queries) ([]pgconn.CommandTag, error) {
@@ -197,7 +198,7 @@ func (q *Querier) BatchQuery(ctx context.Context, queries Queries) (pgx.BatchRes
 // 	defer batchResults.Close()
 
 // 	// for i, rows := range batchRows {
-// 	// 	err := pgxscan.ScanAll(dest[i], rows)
+// 	// 	err := q.scan.ScanAll(dest[i], rows)
 // 	// 	if err != nil {
 // 	// 		return wrapErr(err)
 // 	// 	}
@@ -208,7 +209,7 @@ func (q *Querier) BatchQuery(ctx context.Context, queries Queries) (pgx.BatchRes
 // 		if err != nil {
 // 			return wrapErr(err)
 // 		}
-// 		err = pgxscan.ScanAll(dest, rows)
+// 		err = q.scan.ScanAll(dest, rows)
 // 		if err != nil {
 // 			return wrapErr(err)
 // 		}

@@ -7,6 +7,8 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/georgysavva/scany/v2/dbscan"
+	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -78,7 +80,22 @@ func ConnectWithPGX(appName string, pgxConfig *pgxpool.Config) (*DB, error) {
 	}
 
 	db.SQL = &StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
-	db.Query = &Querier{pool: db.Conn, SQL: db.SQL}
+
+	// TODO: It might be handy to let developers disable this option in "dev" mode. However,
+	//       true is a good default value, see https://github.com/goware/pgkit/issues/13.
+	allowUnknownColumns := true
+
+	dbScanAPI, err := pgxscan.NewDBScanAPI(dbscan.WithAllowUnknownColumns(allowUnknownColumns))
+	if err != nil {
+		return nil, wrapErr(err)
+	}
+
+	pgxScanAPI, err := pgxscan.NewAPI(dbScanAPI)
+	if err != nil {
+		return nil, wrapErr(err)
+	}
+
+	db.Query = &Querier{pool: db.Conn, Scan: pgxScanAPI, SQL: db.SQL}
 
 	return db, nil
 }

@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/goware/pgkit/v2"
 	"github.com/goware/pgkit/v2/db"
 	"github.com/goware/pgkit/v2/dbtype"
@@ -81,7 +80,7 @@ func TestInsertAndSelectRows(t *testing.T) {
 	selectq, args := DB.SQL.Select("*").From("accounts").MustSql()
 
 	var accounts []*Account
-	err = pgxscan.Select(context.Background(), DB.Conn, &accounts, selectq, args...)
+	err = DB.Query.Scan.Select(context.Background(), DB.Conn, &accounts, selectq, args...)
 
 	require.NoError(t, err)
 	require.Len(t, accounts, 1)
@@ -181,7 +180,7 @@ func TestInsertAndSelectRecords(t *testing.T) {
 
 	// Scan result into *Account object
 	a := &Account{}
-	err = pgxscan.ScanOne(a, rows)
+	err = DB.Query.Scan.ScanOne(a, rows)
 	assert.NoError(t, err)
 
 	assert.True(t, a.ID != 0)
@@ -215,7 +214,7 @@ func TestQueryWithNoResults(t *testing.T) {
 
 	// shorthand
 	{
-		err = pgxscan.Select(context.Background(), DB.Conn, &accounts, selectq, args...)
+		err = DB.Query.Scan.Select(context.Background(), DB.Conn, &accounts, selectq, args...)
 		assert.NoError(t, err)
 		assert.Len(t, accounts, 0)
 	}
@@ -226,7 +225,7 @@ func TestQueryWithNoResults(t *testing.T) {
 		defer rows.Close()
 		assert.NoError(t, err)
 
-		err = pgxscan.ScanAll(&accounts, rows)
+		err = DB.Query.Scan.ScanAll(&accounts, rows)
 
 		assert.NoError(t, err)
 		assert.Len(t, accounts, 0)
@@ -235,7 +234,7 @@ func TestQueryWithNoResults(t *testing.T) {
 	// scan one -- returning 'no rows' error
 	{
 		var a *Account
-		err = pgxscan.Get(context.Background(), DB.Conn, a, selectq, args...)
+		err = DB.Query.Scan.Get(context.Background(), DB.Conn, a, selectq, args...)
 		assert.True(t, errors.Is(err, pgx.ErrNoRows))
 	}
 }
@@ -677,7 +676,7 @@ func TestBatchQuery(t *testing.T) {
 		require.NoError(t, err)
 
 		var account Account
-		err = pgxscan.ScanOne(&account, rows)
+		err = DB.Query.Scan.ScanOne(&account, rows)
 		require.NoError(t, err)
 		accounts = append(accounts, &account)
 	}
@@ -714,7 +713,7 @@ func TestSugarBatchQuery(t *testing.T) {
 		require.NoError(t, err)
 
 		var account Account
-		err = pgxscan.ScanOne(&account, rows)
+		err = DB.Query.Scan.ScanOne(&account, rows)
 		require.NoError(t, err)
 		accounts = append(accounts, &account)
 	}
@@ -733,7 +732,7 @@ func TestSugarBatchQuery(t *testing.T) {
 
 		// for _, rows := range batchRows {
 		// 	var account Account
-		// 	err := pgxscan.ScanOne(&account, rows)
+		// 	err := DB.Query.Scan.ScanOne(&account, rows)
 		// 	require.NoError(t, err)
 		// 	accounts = append(accounts, &account)
 		// }
