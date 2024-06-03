@@ -6,10 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	mrand "math/rand"
 	"sort"
 	"testing"
-	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/georgysavva/scany/v2/pgxscan"
@@ -26,8 +24,6 @@ var (
 )
 
 func init() {
-	mrand.Seed(time.Now().UnixNano())
-
 	var err error
 	DB, err = pgkit.Connect("pgkit_test", pgkit.Config{
 		Database:        "pgkit_test",
