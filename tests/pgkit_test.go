@@ -57,15 +57,15 @@ func TestSugarInsertAndSelectRows(t *testing.T) {
 	// Insert
 	q1 := DB.SQL.Insert("accounts").Columns("name", "disabled").Values("peter", false)
 	_, err := DB.Query.Exec(context.Background(), q1)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Select
 	var accounts []*Account
 	q2 := DB.SQL.Select("*").From("accounts")
 	err = DB.Query.GetAll(context.Background(), q2, &accounts)
 
-	assert.NoError(t, err)
-	assert.Len(t, accounts, 1)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
 	assert.True(t, accounts[0].ID != 0)
 	assert.Equal(t, "peter", accounts[0].Name)
 }
