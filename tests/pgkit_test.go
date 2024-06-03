@@ -72,10 +72,10 @@ func TestInsertAndSelectRows(t *testing.T) {
 
 	// Insert
 	insertq, args, err := DB.SQL.Insert("accounts").Columns("name", "disabled").Values("peter", false).ToSql()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	_, err = DB.Conn.Exec(context.Background(), insertq, args...)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Select all
 	selectq, args := DB.SQL.Select("*").From("accounts").MustSql()
@@ -83,8 +83,8 @@ func TestInsertAndSelectRows(t *testing.T) {
 	var accounts []*Account
 	err = pgxscan.Select(context.Background(), DB.Conn, &accounts, selectq, args...)
 
-	assert.NoError(t, err)
-	assert.Len(t, accounts, 1)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
 	assert.True(t, accounts[0].ID != 0)
 	assert.Equal(t, "peter", accounts[0].Name)
 }
