@@ -21,6 +21,9 @@ type Tracer struct {
 	ReplacePlaceholders bool
 	// maybe we should not log the parameters on production because of GDPR ??
 	IncludeParams bool
+	// Log query if it exceeds Threshold
+	LogLongRunningQueries bool
+	Threshold             time.Duration
 }
 
 func (t *Tracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
@@ -50,9 +53,12 @@ func (t *Tracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.Tra
 	queryStart, ok := ctx.Value(ctxKey("query_start")).(time.Time)
 	query := ctx.Value(ctxKey("query"))
 
-	if ok {
-		end := time.Now()
-		t.Logger.Info("query finished", slog.Any("query", query), slog.String("duration", end.Sub(queryStart).String()))
+	if ok && t.LogLongRunningQueries {
+		duration := time.Since(queryStart)
+
+		if duration > t.Threshold {
+			t.Logger.Warn("query took", slog.Any("query", query), slog.String("duration", duration.String()))
+		}
 	}
 
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
