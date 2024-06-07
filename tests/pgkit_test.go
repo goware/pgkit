@@ -950,7 +950,7 @@ func TestSlogSlowQuery(t *testing.T) {
 	buf := &bytes.Buffer{}
 	handler := slog.NewJSONHandler(buf, nil)
 	logger := slog.New(handler)
-	slogTracer := tracer.NewSlogTracer(logger, tracer.WithLogSlowQueriesThreshold(500*time.Millisecond))
+	slogTracer := tracer.NewSlogTracer(logger, tracer.WithLogSlowQueriesThreshold(50*time.Millisecond))
 
 	dbClient, err := connectToDb(pgkit.Config{
 		Database:        "pgkit_test",
@@ -963,7 +963,7 @@ func TestSlogSlowQuery(t *testing.T) {
 
 	defer dbClient.Conn.Close()
 
-	stmt := pgkit.RawQuery("SELECT pg_sleep(1)")
+	stmt := pgkit.RawQuery("SELECT pg_sleep(0.1)")
 
 	_, err = dbClient.Query.Exec(context.Background(), stmt.Build())
 	if err != nil {
@@ -981,8 +981,8 @@ func TestSlogSlowQuery(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	assert.Equal(t, "SELECT pg_sleep(1)", sqlRecord.Query)
-	assert.Regexp(t, "1.0.*s$", sqlRecord.Duration)
+	assert.Equal(t, "SELECT pg_sleep(0.1)", sqlRecord.Query)
+	assert.Regexp(t, "10.*ms$", sqlRecord.Duration)
 }
 
 func TestSlogTracerBatchQuery(t *testing.T) {
