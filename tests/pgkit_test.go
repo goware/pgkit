@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"sort"
 	"testing"
+	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/goware/pgkit/v2"
@@ -790,10 +791,11 @@ func TestRawStatementQuery(t *testing.T) {
 }
 
 type LogRecord struct {
-	Msg   string        `json:"msg,omitempty"`
-	Query string        `json:"query,omitempty"`
-	Args  []interface{} `json:"args,omitempty"`
-	Err   string        `json:"err"`
+	Msg      string        `json:"msg,omitempty"`
+	Query    string        `json:"query,omitempty"`
+	Args     []interface{} `json:"args,omitempty"`
+	Err      string        `json:"err"`
+	Duration string        `json:"duration,omitempty"`
 }
 
 func TestSlogQueryTracerWithValuesReplaced(t *testing.T) {
@@ -887,6 +889,47 @@ func TestSlogQueryTracerWithErr(t *testing.T) {
 	assert.Equal(t, "SELECT random_columns FROM accounts WHERE name IN ($1,$2)", sqlRecord.Query)
 	assert.Equal(t, "SELECT random_columns FROM accounts WHERE name IN ($1,$2)", errRecord.Query)
 	assert.Equal(t, "ERROR: column \"random_columns\" does not exist (SQLSTATE 42703)", errRecord.Err)
+}
+
+func TestSlogSlowQuery(t *testing.T) {
+	var err error
+
+	buf := &bytes.Buffer{}
+	handler := slog.NewJSONHandler(buf, nil)
+	logger := slog.New(handler)
+	slogTracer := tracer.NewSlogTracer(logger, tracer.WithLogSlowQueriesThreshold(500*time.Millisecond))
+
+	dbClient, err := connectToDb(pgkit.Config{
+		Database:        "pgkit_test",
+		Host:            "localhost",
+		Username:        "postgres",
+		Password:        "postgres",
+		ConnMaxLifetime: "1h",
+		Tracer:          tracer.NewSQLTracer(slogTracer),
+	})
+
+	defer dbClient.Conn.Close()
+
+	stmt := pgkit.RawQuery("SELECT pg_sleep(1)")
+
+	_, err = dbClient.Query.Exec(context.Background(), stmt.Build())
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to exec sql: %w", err))
+	}
+	r := bufio.NewReader(buf)
+	sqlLine, _, err := r.ReadLine()
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to read line: %w", err))
+	}
+
+	var sqlRecord LogRecord
+	err = json.Unmarshal(sqlLine, &sqlRecord)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	assert.Equal(t, "SELECT pg_sleep(1)", sqlRecord.Query)
+	assert.Regexp(t, "1.0.*s$", sqlRecord.Duration)
 }
 
 func connectToDb(conf pgkit.Config) (*pgkit.DB, error) {
