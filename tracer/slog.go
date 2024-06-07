@@ -23,18 +23,29 @@ type SlogTracer struct {
 	LogSlowQueriesThreshold time.Duration
 }
 
-func NewSlogTracer(logger *slog.Logger) *SlogTracer {
+func NewSlogTracer(logger *slog.Logger, opts ...Option) *SlogTracer {
+	cfg := &config{
+		logAllQueries:           false,
+		logFailedQueries:        false,
+		logValues:               false,
+		logSlowQueriesThreshold: 0,
+	}
+
+	for _, opt := range opts {
+		opt.apply(cfg)
+	}
+
 	return &SlogTracer{
 		Logger:                  logger,
-		LogAllQueries:           false,
-		LogFailedQueries:        false,
-		LogValues:               false,
-		LogSlowQueriesThreshold: 0,
+		LogAllQueries:           cfg.logAllQueries,
+		LogFailedQueries:        cfg.logFailedQueries,
+		LogValues:               cfg.logValues,
+		LogSlowQueriesThreshold: cfg.logSlowQueriesThreshold,
 	}
 }
 
 func (s *SlogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	query, _ := ctx.Value(ctxKey("query")).(string)
+	query := data.SQL
 	if s.LogValues {
 		for i, placeholder := range data.Args {
 			query = strings.Replace(query, fmt.Sprintf("$%d", i+1), fmt.Sprintf("%v", placeholder), 1)
@@ -43,9 +54,9 @@ func (s *SlogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.
 
 	if s.LogAllQueries {
 		if s.LogValues {
-			s.Logger.Info("query start", slog.String("sql", query), slog.Any("args", data.Args))
+			s.Logger.Info("query start", slog.String("query", query), slog.Any("args", data.Args))
 		} else {
-			s.Logger.Info("query start", slog.String("sql", query))
+			s.Logger.Info("query start", slog.String("query", query))
 		}
 	}
 
