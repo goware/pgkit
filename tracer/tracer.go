@@ -2,66 +2,66 @@ package tracer
 
 import (
 	"context"
-	"database/sql"
-	"errors"
-	"fmt"
-	"log/slog"
-	"strings"
-	"time"
-
 	"github.com/jackc/pgx/v5"
 )
 
 type ctxKey string
 
-type Tracer struct {
-	Logger          *slog.Logger
-	LogSqlStatement bool
-	// replace placeholders with arguments
-	ReplacePlaceholders bool
-	// maybe we should not log the parameters on production because of GDPR ??
-	IncludeParams bool
-	// Log query if it exceeds Threshold
-	LogLongRunningQueries bool
-	Threshold             time.Duration
+type Tracer interface {
+	pgx.QueryTracer
+	pgx.BatchTracer
 }
 
-func (t *Tracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	query := data.SQL
-	if t.IncludeParams && t.ReplacePlaceholders {
-		for i, placeholder := range data.Args {
-			query = strings.Replace(query, fmt.Sprintf("$%d", i+1), fmt.Sprintf("%v", placeholder), 1)
-		}
-	}
+type SQLTracer struct {
+	tracers []Tracer
+}
 
-	if t.LogSqlStatement {
-		if t.IncludeParams {
-			t.Logger.Info("query start", slog.String("sql", query), slog.Any("args", data.Args))
-		} else {
-			t.Logger.Info("query start", slog.String("sql", query))
-		}
-	}
+func NewSQLTracer(tracers ...Tracer) *SQLTracer {
+	return &SQLTracer{tracers: tracers}
+}
 
-	ctx = context.WithValue(ctx, ctxKey("query_start"), time.Now())
-	ctx = context.WithValue(ctx, ctxKey("query"), query)
+func WithTracingEnabled(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, ctxKey("enabled"), enabled)
+}
+
+func isTracingEnabled(ctx context.Context) bool {
+	enabled, ok := ctx.Value(ctxKey("enabled")).(bool)
+	if !ok {
+		return false
+	}
+	return enabled
+}
+
+func (s *SQLTracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	for _, tracer := range s.tracers {
+		ctx = tracer.TraceQueryStart(ctx, conn, data)
+	}
 
 	return ctx
 }
 
-func (t *Tracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
-	err := data.Err
-	queryStart, ok := ctx.Value(ctxKey("query_start")).(time.Time)
-	query := ctx.Value(ctxKey("query"))
+func (s *SQLTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
+	for _, tracer := range s.tracers {
+		tracer.TraceQueryEnd(ctx, conn, data)
+	}
+}
 
-	if ok && t.LogLongRunningQueries {
-		duration := time.Since(queryStart)
-
-		if duration > t.Threshold {
-			t.Logger.Warn("query took", slog.Any("query", query), slog.String("duration", duration.String()))
-		}
+func (s *SQLTracer) TraceBatchStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceBatchStartData) context.Context {
+	for _, tracer := range s.tracers {
+		ctx = tracer.TraceBatchStart(ctx, conn, data)
 	}
 
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		t.Logger.Error("query failed", slog.Any("query", query), slog.String("err", err.Error()))
+	return ctx
+}
+
+func (s *SQLTracer) TraceBatchQuery(ctx context.Context, conn *pgx.Conn, data pgx.TraceBatchQueryData) {
+	for _, tracer := range s.tracers {
+		tracer.TraceBatchQuery(ctx, conn, data)
+	}
+}
+
+func (s *SQLTracer) TraceBatchEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceBatchEndData) {
+	for _, tracer := range s.tracers {
+		tracer.TraceBatchEnd(ctx, conn, data)
 	}
 }

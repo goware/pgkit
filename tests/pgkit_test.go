@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/goware/pgkit/v2/tracer"
 	"log"
 	"sort"
 	"testing"
@@ -782,6 +783,35 @@ func TestRawStatementQuery(t *testing.T) {
 	err = DB.Query.GetAll(context.Background(), q, &accounts)
 	require.NoError(t, err)
 	require.Len(t, accounts, 2)
+}
+
+func TestSlogQueryTracer(t *testing.T) {
+	var err error
+
+	slogTracer := tracer.NewSlogTracer()
+
+	DB, err = pgkit.Connect("pgkit_test", pgkit.Config{
+		Database:        "pgkit_test",
+		Host:            "localhost",
+		Username:        "postgres",
+		Password:        "postgres",
+		ConnMaxLifetime: "1h",
+		Tracer:          tracer.NewSQLTracer(),
+	})
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to connect db: %w", err))
+	}
+
+	err = DB.Conn.Ping(context.Background())
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to ping db: %w", err))
+	}
+
+	accounts := []*Account{}
+	err = DB.Query.GetAll(context.Background(), q, &accounts)
+	require.NoError(t, err)
+	require.Len(t, accounts, 2)
+
 }
 
 func hexEncode(b []byte) string {
