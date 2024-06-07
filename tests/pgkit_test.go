@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"sort"
@@ -836,6 +837,58 @@ func TestSlogQueryTracerWithValuesReplaced(t *testing.T) {
 	}
 
 	assert.Equal(t, "SELECT * FROM accounts WHERE name IN (user-1,user-2)", record.Query)
+}
+
+func TestSlogQueryTracerUsingContextToInit(t *testing.T) {
+	var err error
+
+	buf := &bytes.Buffer{}
+	handler := slog.NewJSONHandler(buf, nil)
+	logger := slog.New(handler)
+	slogTracer := tracer.NewSlogTracer(logger)
+
+	dbClient, err := connectToDb(pgkit.Config{
+		Database:        "pgkit_test",
+		Host:            "localhost",
+		Username:        "postgres",
+		Password:        "postgres",
+		ConnMaxLifetime: "1h",
+		Tracer:          tracer.NewSQLTracer(slogTracer),
+	})
+
+	defer dbClient.Conn.Close()
+
+	stmt := pgkit.RawQuery("SELECT * FROM accounts WHERE name IN (?,?)")
+	q := stmt.Build("user-1", "user-2")
+
+	accounts := []*Account{}
+	// ignore err to find out if we logged the sql error using slogTracer
+	ctx := context.Background()
+	ctx = tracer.WithTracingEnabled(ctx)
+
+	_ = dbClient.Query.GetAll(ctx, q, &accounts)
+	_ = dbClient.Query.GetAll(context.Background(), q, &accounts)
+
+	r := bufio.NewReader(buf)
+	line, _, err := r.ReadLine()
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to read line: %w", err))
+	}
+	var record LogRecord
+	err = json.Unmarshal(line, &record)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// second line does not exist
+	// because we passed context without logging enabled
+	line, _, err = r.ReadLine()
+	if err != io.EOF {
+		log.Fatal(fmt.Errorf("failed to read line: %w", err))
+
+	}
+
+	assert.Equal(t, "SELECT * FROM accounts WHERE name IN ($1,$2)", record.Query)
 }
 
 func TestSlogQueryTracerWithErr(t *testing.T) {

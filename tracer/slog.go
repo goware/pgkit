@@ -53,7 +53,7 @@ func (s *SlogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.
 		}
 	}
 
-	if s.LogAllQueries {
+	if s.LogAllQueries || isTracingEnabled(ctx) {
 		if s.LogValues {
 			s.Logger.Info("query start", slog.String("query", query), slog.Any("args", data.Args))
 		} else {
@@ -61,8 +61,8 @@ func (s *SlogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.
 		}
 	}
 
-	ctx = context.WithValue(ctx, ctxKey("query_start"), time.Now())
-	ctx = context.WithValue(ctx, ctxKey("query"), query)
+	ctx = context.WithValue(ctx, contextKeyQueryStart, time.Now())
+	ctx = context.WithValue(ctx, contextKeyQuery, query)
 
 	return ctx
 }
@@ -81,8 +81,10 @@ func (s *SlogTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx
 		}
 	}
 
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		s.Logger.Error("query failed", slog.Any("query", query), slog.String("err", err.Error()))
+	if s.LogFailedQueries || isTracingEnabled(ctx) {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			s.Logger.Error("query failed", slog.Any("query", query), slog.String("err", err.Error()))
+		}
 	}
 }
 

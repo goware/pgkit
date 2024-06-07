@@ -7,6 +7,12 @@ import (
 
 type ctxKey string
 
+var (
+	contextKeyQueryStart     = ctxKey("query_start")
+	contextKeyQuery          = ctxKey("query")
+	contextKeyTracingEnabled = ctxKey("tracing_enabled")
+)
+
 type Tracer interface {
 	pgx.QueryTracer
 	pgx.BatchTracer
@@ -20,12 +26,12 @@ func NewSQLTracer(tracers ...Tracer) *SQLTracer {
 	return &SQLTracer{tracers: tracers}
 }
 
-func WithTracingEnabled(ctx context.Context, enabled bool) context.Context {
-	return context.WithValue(ctx, ctxKey("enabled"), enabled)
+func WithTracingEnabled(ctx context.Context) context.Context {
+	return context.WithValue(ctx, contextKeyTracingEnabled, true)
 }
 
 func isTracingEnabled(ctx context.Context) bool {
-	enabled, ok := ctx.Value(ctxKey("enabled")).(bool)
+	enabled, ok := ctx.Value(contextKeyTracingEnabled).(bool)
 	if !ok {
 		return false
 	}
