@@ -932,6 +932,57 @@ func TestSlogSlowQuery(t *testing.T) {
 	assert.Regexp(t, "1.0.*s$", sqlRecord.Duration)
 }
 
+func TestSlogTracerBatchQuery(t *testing.T) {
+	var err error
+
+	buf := &bytes.Buffer{}
+	handler := slog.NewJSONHandler(buf, nil)
+	logger := slog.New(handler)
+	slogTracer := tracer.NewSlogTracer(logger, tracer.WithLogAllQueries(), tracer.WithLogValues())
+
+	dbClient, err := connectToDb(pgkit.Config{
+		Database:        "pgkit_test",
+		Host:            "localhost",
+		Username:        "postgres",
+		Password:        "postgres",
+		ConnMaxLifetime: "1h",
+		Tracer:          tracer.NewSQLTracer(slogTracer),
+	})
+
+	defer dbClient.Conn.Close()
+
+	ctx := context.Background()
+	err = pgx.BeginFunc(context.Background(), dbClient.Conn, func(tx pgx.Tx) error {
+		queries := pgkit.Queries{}
+
+		for i := 0; i < 10; i++ {
+			rec := &Account{Name: fmt.Sprintf("user-%d", i)}
+			queries.Add(DB.SQL.InsertRecord(rec))
+		}
+
+		_, err := dbClient.TxQuery(tx).BatchExec(ctx, queries)
+		return err
+	})
+	assert.NoError(t, err)
+
+	r := bufio.NewReader(buf)
+	// first line is always `BEGIN TRANSACTION`
+	sqlLine, _, err := r.ReadLine()
+
+	sqlLine, _, err = r.ReadLine()
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to read line: %w", err))
+	}
+
+	var sqlRecord LogRecord
+	err = json.Unmarshal(sqlLine, &sqlRecord)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	assert.Equal(t, "INSERT INTO accounts (disabled,name) VALUES (false,user-0)", sqlRecord.Query)
+}
+
 func connectToDb(conf pgkit.Config) (*pgkit.DB, error) {
 	dbClient, err := pgkit.Connect("pgkit_test", conf)
 	if err != nil {

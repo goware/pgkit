@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgconn"
 	"log/slog"
 	"strings"
 	"time"
@@ -86,13 +87,21 @@ func (s *SlogTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx
 }
 
 func (s *SlogTracer) TraceBatchStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceBatchStartData) context.Context {
-	return ctx
+	query := data.Batch.QueuedQueries[0]
+
+	return s.TraceQueryStart(ctx, conn, pgx.TraceQueryStartData{
+		SQL:  query.SQL,
+		Args: query.Arguments,
+	})
 }
 
 func (s *SlogTracer) TraceBatchQuery(ctx context.Context, conn *pgx.Conn, data pgx.TraceBatchQueryData) {
-
+	// do nothing
 }
 
 func (s *SlogTracer) TraceBatchEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceBatchEndData) {
-
+	s.TraceQueryEnd(ctx, conn, pgx.TraceQueryEndData{
+		CommandTag: pgconn.CommandTag{},
+		Err:        data.Err,
+	})
 }
