@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-type SlogTracer struct {
+type LogTracer struct {
 	Logger           *slog.Logger
 	LogAllQueries    bool
 	LogFailedQueries bool
@@ -29,7 +29,7 @@ type SlogTracer struct {
 	FailedQueryHook func(ctx context.Context, query string, err error)
 }
 
-func NewSlogTracer(logger *slog.Logger, opts ...Option) *SlogTracer {
+func NewLogTracer(logger *slog.Logger, opts ...Option) *LogTracer {
 	logStart := func(ctx context.Context, query string, args []any) {
 		if logger != nil {
 			logger.LogAttrs(ctx, slog.LevelInfo, "query start", slog.String("query", query), slog.Any("args", args))
@@ -69,7 +69,7 @@ func NewSlogTracer(logger *slog.Logger, opts ...Option) *SlogTracer {
 		opt.apply(cfg)
 	}
 
-	return &SlogTracer{
+	return &LogTracer{
 		LogAllQueries:           cfg.logAllQueries,
 		LogFailedQueries:        cfg.logFailedQueries,
 		LogValues:               cfg.logValues,
@@ -81,16 +81,16 @@ func NewSlogTracer(logger *slog.Logger, opts ...Option) *SlogTracer {
 	}
 }
 
-func (s *SlogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+func (l *LogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	query := data.SQL
-	if s.LogValues {
+	if l.LogValues {
 		for i, placeholder := range data.Args {
 			query = strings.Replace(query, fmt.Sprintf("$%d", i+1), fmt.Sprintf("%v", placeholder), 1)
 		}
 	}
 
-	if s.LogAllQueries || isTracingEnabled(ctx) {
-		s.StartQueryHook(ctx, query, data.Args)
+	if l.LogAllQueries || isTracingEnabled(ctx) {
+		l.StartQueryHook(ctx, query, data.Args)
 	}
 
 	ctx = context.WithValue(ctx, contextKeyQueryStart, time.Now())
@@ -99,41 +99,41 @@ func (s *SlogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.
 	return ctx
 }
 
-func (s *SlogTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
+func (l *LogTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
 	queryStart := getCtxQueryStart(ctx)
 	query := getCtxQuery(ctx)
 	queryDuration := time.Since(queryStart)
 
-	if s.LogSlowQueriesThreshold > 0 {
-		if queryDuration > s.LogSlowQueriesThreshold {
-			s.SlowQueryHook(ctx, query, queryDuration)
+	if l.LogSlowQueriesThreshold > 0 {
+		if queryDuration > l.LogSlowQueriesThreshold {
+			l.SlowQueryHook(ctx, query, queryDuration)
 		}
 	}
 
-	if (s.LogAllQueries || isTracingEnabled(ctx)) && data.Err == nil {
-		s.EndQueryHook(ctx, query, queryDuration)
+	if (l.LogAllQueries || isTracingEnabled(ctx)) && data.Err == nil {
+		l.EndQueryHook(ctx, query, queryDuration)
 	}
 
-	if s.LogFailedQueries && data.Err != nil && !errors.Is(data.Err, sql.ErrNoRows) {
-		s.FailedQueryHook(ctx, query, data.Err)
+	if l.LogFailedQueries && data.Err != nil && !errors.Is(data.Err, sql.ErrNoRows) {
+		l.FailedQueryHook(ctx, query, data.Err)
 	}
 }
 
-func (s *SlogTracer) TraceBatchStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceBatchStartData) context.Context {
+func (l *LogTracer) TraceBatchStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceBatchStartData) context.Context {
 	query := data.Batch.QueuedQueries[0]
 
-	return s.TraceQueryStart(ctx, conn, pgx.TraceQueryStartData{
+	return l.TraceQueryStart(ctx, conn, pgx.TraceQueryStartData{
 		SQL:  query.SQL,
 		Args: query.Arguments,
 	})
 }
 
-func (s *SlogTracer) TraceBatchQuery(ctx context.Context, conn *pgx.Conn, data pgx.TraceBatchQueryData) {
+func (l *LogTracer) TraceBatchQuery(ctx context.Context, conn *pgx.Conn, data pgx.TraceBatchQueryData) {
 	// do nothing
 }
 
-func (s *SlogTracer) TraceBatchEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceBatchEndData) {
-	s.TraceQueryEnd(ctx, conn, pgx.TraceQueryEndData{
+func (l *LogTracer) TraceBatchEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceBatchEndData) {
+	l.TraceQueryEnd(ctx, conn, pgx.TraceQueryEndData{
 		CommandTag: pgconn.CommandTag{},
 		Err:        data.Err,
 	})

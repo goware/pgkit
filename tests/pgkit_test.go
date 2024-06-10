@@ -838,7 +838,7 @@ func TestSlogQueryTracerWithCustomLoggingFunctions(t *testing.T) {
 	buf := &bytes.Buffer{}
 	handler := slog.NewJSONHandler(buf, nil)
 	logger := slog.New(handler)
-	slogTracer := tracer.NewSlogTracer(nil,
+	slogTracer := tracer.NewLogTracer(nil,
 		tracer.WithLogValues(),
 		tracer.WithLogAllQueries(),
 		tracer.WithLogFailedQueries(),
@@ -1112,11 +1112,11 @@ func TestSlogTracerBatchQuery(t *testing.T) {
 	}
 }
 
-func getTracer(opts []tracer.Option) (*bytes.Buffer, *tracer.SlogTracer) {
+func getTracer(opts []tracer.Option) (*bytes.Buffer, *tracer.LogTracer) {
 	buf := &bytes.Buffer{}
 	handler := slog.NewJSONHandler(buf, nil)
 	logger := slog.New(handler)
-	slogTracer := tracer.NewSlogTracer(logger, opts...)
+	slogTracer := tracer.NewLogTracer(logger, opts...)
 	return buf, slogTracer
 }
 
