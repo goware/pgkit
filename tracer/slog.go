@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5/pgconn"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type SlogTracer struct {
