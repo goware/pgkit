@@ -17,18 +17,41 @@ type SlogTracer struct {
 	Logger           *slog.Logger
 	LogAllQueries    bool
 	LogFailedQueries bool
-	// log passed params
 	// replace placeholders with arguments useful for local debugging
 	LogValues bool
 	// enabled if non-zero value is provided
 	LogSlowQueriesThreshold time.Duration
-	// level for logging all queries
-	LogLevel slog.Level
+
+	// give client power to change each section which is being logged
+	LogStart       func(ctx context.Context, query string, args []any)
+	LogSlowQuery   func(ctx context.Context, query string, duration time.Duration)
+	LogEnd         func(ctx context.Context, query string, duration time.Duration)
+	LogFailedQuery func(ctx context.Context, query string, err error)
 }
 
 func NewSlogTracer(logger *slog.Logger, opts ...Option) *SlogTracer {
-	if logger == nil {
-		panic("logger is nil")
+	logStart := func(ctx context.Context, query string, args []any) {
+		if logger != nil {
+			logger.LogAttrs(ctx, slog.LevelInfo, "query start", slog.String("query", query), slog.Any("args", args))
+		}
+	}
+
+	logSlowQuery := func(ctx context.Context, query string, duration time.Duration) {
+		if logger != nil {
+			logger.LogAttrs(ctx, slog.LevelWarn, "slow query took", slog.Any("query", query), slog.String("duration", duration.String()))
+		}
+	}
+
+	logEnd := func(ctx context.Context, query string, duration time.Duration) {
+		if logger != nil {
+			logger.LogAttrs(ctx, slog.LevelInfo, "query end", slog.Any("query", query), slog.String("duration", duration.String()))
+		}
+	}
+
+	logFailed := func(ctx context.Context, query string, err error) {
+		if logger != nil {
+			logger.LogAttrs(ctx, slog.LevelError, "query failed", slog.Any("query", query), slog.String("err", err.Error()))
+		}
 	}
 
 	cfg := &config{
@@ -36,6 +59,10 @@ func NewSlogTracer(logger *slog.Logger, opts ...Option) *SlogTracer {
 		logFailedQueries:        false,
 		logValues:               false,
 		logSlowQueriesThreshold: 0,
+		logStart:                logStart,
+		logSlowQuery:            logSlowQuery,
+		logEnd:                  logEnd,
+		logFailedQuery:          logFailed,
 	}
 
 	for _, opt := range opts {
@@ -43,12 +70,14 @@ func NewSlogTracer(logger *slog.Logger, opts ...Option) *SlogTracer {
 	}
 
 	return &SlogTracer{
-		Logger:                  logger,
 		LogAllQueries:           cfg.logAllQueries,
 		LogFailedQueries:        cfg.logFailedQueries,
 		LogValues:               cfg.logValues,
 		LogSlowQueriesThreshold: cfg.logSlowQueriesThreshold,
-		LogLevel:                slog.LevelInfo,
+		LogStart:                cfg.logStart,
+		LogSlowQuery:            cfg.logSlowQuery,
+		LogEnd:                  cfg.logEnd,
+		LogFailedQuery:          cfg.logFailedQuery,
 	}
 }
 
@@ -61,11 +90,7 @@ func (s *SlogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.
 	}
 
 	if s.LogAllQueries || isTracingEnabled(ctx) {
-		if s.LogValues {
-			s.Logger.LogAttrs(ctx, s.LogLevel, "query start", slog.String("query", query), slog.Any("args", data.Args))
-		} else {
-			s.Logger.LogAttrs(ctx, s.LogLevel, "query start", slog.String("query", query))
-		}
+		s.LogStart(ctx, query, data.Args)
 	}
 
 	ctx = context.WithValue(ctx, contextKeyQueryStart, time.Now())
@@ -77,19 +102,20 @@ func (s *SlogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.
 func (s *SlogTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
 	queryStart := ctx.Value(ctxKey("query_start")).(time.Time)
 	query := ctx.Value(ctxKey("query")).(string)
+	queryDuration := time.Since(queryStart)
 
 	if s.LogSlowQueriesThreshold > 0 {
-		duration := time.Since(queryStart)
-
-		if duration > s.LogSlowQueriesThreshold {
-			s.Logger.Warn("query took", slog.Any("query", query), slog.String("duration", duration.String()))
+		if queryDuration > s.LogSlowQueriesThreshold {
+			s.LogSlowQuery(ctx, query, queryDuration)
 		}
 	}
 
-	if s.LogFailedQueries || isTracingEnabled(ctx) {
-		if data.Err != nil && !errors.Is(data.Err, sql.ErrNoRows) {
-			s.Logger.Error("query failed", slog.Any("query", query), slog.String("err", data.Err.Error()))
-		}
+	if (s.LogAllQueries || isTracingEnabled(ctx)) && data.Err == nil {
+		s.LogEnd(ctx, query, queryDuration)
+	}
+
+	if s.LogFailedQueries && data.Err != nil && !errors.Is(data.Err, sql.ErrNoRows) {
+		s.LogFailedQuery(ctx, query, data.Err)
 	}
 }
 
