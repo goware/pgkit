@@ -100,8 +100,8 @@ func (s *SlogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.
 }
 
 func (s *SlogTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
-	queryStart := ctx.Value(ctxKey("query_start")).(time.Time)
-	query := ctx.Value(ctxKey("query")).(string)
+	queryStart := getCtxQueryStart(ctx)
+	query := getCtxQuery(ctx)
 	queryDuration := time.Since(queryStart)
 
 	if s.LogSlowQueriesThreshold > 0 {
@@ -137,4 +137,22 @@ func (s *SlogTracer) TraceBatchEnd(ctx context.Context, conn *pgx.Conn, data pgx
 		CommandTag: pgconn.CommandTag{},
 		Err:        data.Err,
 	})
+}
+
+func getCtxQuery(ctx context.Context) string {
+	query, ok := ctx.Value(ctxKey("query")).(string)
+	if !ok {
+		return ""
+	}
+
+	return query
+}
+
+func getCtxQueryStart(ctx context.Context) time.Time {
+	queryStart, ok := ctx.Value(contextKeyQueryStart).(time.Time)
+	if !ok {
+		return time.Time{}
+	}
+
+	return queryStart
 }
