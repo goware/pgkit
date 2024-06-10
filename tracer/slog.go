@@ -22,6 +22,8 @@ type SlogTracer struct {
 	LogValues bool
 	// enabled if non-zero value is provided
 	LogSlowQueriesThreshold time.Duration
+	// level for logging all queries
+	LogLevel slog.Level
 }
 
 func NewSlogTracer(logger *slog.Logger, opts ...Option) *SlogTracer {
@@ -46,6 +48,7 @@ func NewSlogTracer(logger *slog.Logger, opts ...Option) *SlogTracer {
 		LogFailedQueries:        cfg.logFailedQueries,
 		LogValues:               cfg.logValues,
 		LogSlowQueriesThreshold: cfg.logSlowQueriesThreshold,
+		LogLevel:                slog.LevelInfo,
 	}
 }
 
@@ -59,9 +62,9 @@ func (s *SlogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.
 
 	if s.LogAllQueries || isTracingEnabled(ctx) {
 		if s.LogValues {
-			s.Logger.Info("query start", slog.String("query", query), slog.Any("args", data.Args))
+			s.Logger.LogAttrs(ctx, s.LogLevel, "query start", slog.String("query", query), slog.Any("args", data.Args))
 		} else {
-			s.Logger.Info("query start", slog.String("query", query))
+			s.Logger.LogAttrs(ctx, s.LogLevel, "query start", slog.String("query", query))
 		}
 	}
 

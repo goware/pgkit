@@ -38,6 +38,7 @@ func isTracingEnabled(ctx context.Context) bool {
 	if !ok {
 		return false
 	}
+
 	return enabled
 }
 
