@@ -25,6 +25,10 @@ type SlogTracer struct {
 }
 
 func NewSlogTracer(logger *slog.Logger, opts ...Option) *SlogTracer {
+	if logger == nil {
+		panic("logger is nil")
+	}
+
 	cfg := &config{
 		logAllQueries:           false,
 		logFailedQueries:        false,
