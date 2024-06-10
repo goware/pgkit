@@ -23,10 +23,10 @@ type SlogTracer struct {
 	LogSlowQueriesThreshold time.Duration
 
 	// give client power to change each section which is being logged
-	LogStart       func(ctx context.Context, query string, args []any)
-	LogSlowQuery   func(ctx context.Context, query string, duration time.Duration)
-	LogEnd         func(ctx context.Context, query string, duration time.Duration)
-	LogFailedQuery func(ctx context.Context, query string, err error)
+	StartQueryHook  func(ctx context.Context, query string, args []any)
+	SlowQueryHook   func(ctx context.Context, query string, duration time.Duration)
+	EndQueryHook    func(ctx context.Context, query string, duration time.Duration)
+	FailedQueryHook func(ctx context.Context, query string, err error)
 }
 
 func NewSlogTracer(logger *slog.Logger, opts ...Option) *SlogTracer {
@@ -59,10 +59,10 @@ func NewSlogTracer(logger *slog.Logger, opts ...Option) *SlogTracer {
 		logFailedQueries:        false,
 		logValues:               false,
 		logSlowQueriesThreshold: 0,
-		logStart:                logStart,
-		logSlowQuery:            logSlowQuery,
-		logEnd:                  logEnd,
-		logFailedQuery:          logFailed,
+		logStartHook:            logStart,
+		logSlowQueryHook:        logSlowQuery,
+		logEndQueryHook:         logEnd,
+		logFailedQueryHook:      logFailed,
 	}
 
 	for _, opt := range opts {
@@ -74,10 +74,10 @@ func NewSlogTracer(logger *slog.Logger, opts ...Option) *SlogTracer {
 		LogFailedQueries:        cfg.logFailedQueries,
 		LogValues:               cfg.logValues,
 		LogSlowQueriesThreshold: cfg.logSlowQueriesThreshold,
-		LogStart:                cfg.logStart,
-		LogSlowQuery:            cfg.logSlowQuery,
-		LogEnd:                  cfg.logEnd,
-		LogFailedQuery:          cfg.logFailedQuery,
+		StartQueryHook:          cfg.logStartHook,
+		SlowQueryHook:           cfg.logSlowQueryHook,
+		EndQueryHook:            cfg.logEndQueryHook,
+		FailedQueryHook:         cfg.logFailedQueryHook,
 	}
 }
 
@@ -90,7 +90,7 @@ func (s *SlogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.
 	}
 
 	if s.LogAllQueries || isTracingEnabled(ctx) {
-		s.LogStart(ctx, query, data.Args)
+		s.StartQueryHook(ctx, query, data.Args)
 	}
 
 	ctx = context.WithValue(ctx, contextKeyQueryStart, time.Now())
@@ -106,16 +106,16 @@ func (s *SlogTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx
 
 	if s.LogSlowQueriesThreshold > 0 {
 		if queryDuration > s.LogSlowQueriesThreshold {
-			s.LogSlowQuery(ctx, query, queryDuration)
+			s.SlowQueryHook(ctx, query, queryDuration)
 		}
 	}
 
 	if (s.LogAllQueries || isTracingEnabled(ctx)) && data.Err == nil {
-		s.LogEnd(ctx, query, queryDuration)
+		s.EndQueryHook(ctx, query, queryDuration)
 	}
 
 	if s.LogFailedQueries && data.Err != nil && !errors.Is(data.Err, sql.ErrNoRows) {
-		s.LogFailedQuery(ctx, query, data.Err)
+		s.FailedQueryHook(ctx, query, data.Err)
 	}
 }
 

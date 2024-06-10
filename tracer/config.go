@@ -10,10 +10,10 @@ type config struct {
 	logFailedQueries        bool
 	logValues               bool
 	logSlowQueriesThreshold time.Duration
-	logStart                func(ctx context.Context, query string, args []any)
-	logSlowQuery            func(ctx context.Context, query string, duration time.Duration)
-	logEnd                  func(ctx context.Context, query string, duration time.Duration)
-	logFailedQuery          func(ctx context.Context, query string, err error)
+	logStartHook            func(ctx context.Context, query string, args []any)
+	logSlowQueryHook        func(ctx context.Context, query string, duration time.Duration)
+	logEndQueryHook         func(ctx context.Context, query string, duration time.Duration)
+	logFailedQueryHook      func(ctx context.Context, query string, err error)
 }
 
 type optionFunc func(config *config)
@@ -26,27 +26,27 @@ type Option interface {
 	apply(*config)
 }
 
-func WithLogStart(f func(ctx context.Context, query string, args []any)) Option {
+func WithLogStartHook(f func(ctx context.Context, query string, args []any)) Option {
 	return optionFunc(func(c *config) {
-		c.logStart = f
+		c.logStartHook = f
 	})
 }
 
-func WithLogSlowQuery(f func(ctx context.Context, query string, duration time.Duration)) Option {
+func WithLogSlowQueryHook(f func(ctx context.Context, query string, duration time.Duration)) Option {
 	return optionFunc(func(c *config) {
-		c.logSlowQuery = f
+		c.logSlowQueryHook = f
 	})
 }
 
-func WithLogFailedQuery(f func(ctx context.Context, query string, err error)) Option {
+func WithLogFailedQueryHook(f func(ctx context.Context, query string, err error)) Option {
 	return optionFunc(func(c *config) {
-		c.logFailedQuery = f
+		c.logFailedQueryHook = f
 	})
 }
 
-func WithLogEnd(f func(ctx context.Context, query string, duration time.Duration)) Option {
+func WithLogEndHook(f func(ctx context.Context, query string, duration time.Duration)) Option {
 	return optionFunc(func(c *config) {
-		c.logEnd = f
+		c.logEndQueryHook = f
 	})
 }
 

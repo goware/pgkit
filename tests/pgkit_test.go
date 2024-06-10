@@ -842,10 +842,10 @@ func TestSlogQueryTracerWithCustomLoggingFunctions(t *testing.T) {
 		tracer.WithLogValues(),
 		tracer.WithLogAllQueries(),
 		tracer.WithLogFailedQueries(),
-		tracer.WithLogStart(func(ctx context.Context, query string, args []any) {
+		tracer.WithLogStartHook(func(ctx context.Context, query string, args []any) {
 			logger.Info(query, args...)
 		}),
-		tracer.WithLogEnd(func(ctx context.Context, query string, duration time.Duration) {
+		tracer.WithLogEndHook(func(ctx context.Context, query string, duration time.Duration) {
 			logger.Info(query, "duration", duration.String())
 		}),
 	)
