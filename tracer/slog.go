@@ -72,8 +72,6 @@ func (s *SlogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.
 }
 
 func (s *SlogTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
-	err := data.Err
-
 	queryStart := ctx.Value(ctxKey("query_start")).(time.Time)
 	query := ctx.Value(ctxKey("query")).(string)
 
@@ -86,8 +84,8 @@ func (s *SlogTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx
 	}
 
 	if s.LogFailedQueries || isTracingEnabled(ctx) {
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			s.Logger.Error("query failed", slog.Any("query", query), slog.String("err", err.Error()))
+		if data.Err != nil && !errors.Is(data.Err, sql.ErrNoRows) {
+			s.Logger.Error("query failed", slog.Any("query", query), slog.String("err", data.Err.Error()))
 		}
 	}
 }
