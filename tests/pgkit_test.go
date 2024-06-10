@@ -800,12 +800,7 @@ type LogRecord struct {
 }
 
 func TestSlogQueryTracerWithValuesReplaced(t *testing.T) {
-	var err error
-
-	buf := &bytes.Buffer{}
-	handler := slog.NewJSONHandler(buf, nil)
-	logger := slog.New(handler)
-	slogTracer := tracer.NewSlogTracer(logger, tracer.WithLogAllQueries(), tracer.WithLogValues(), tracer.WithLogFailedQueries())
+	buf, slogTracer := getTracer([]tracer.Option{tracer.WithLogAllQueries(), tracer.WithLogValues(), tracer.WithLogFailedQueries()})
 
 	dbClient, err := connectToDb(pgkit.Config{
 		Database:        "pgkit_test",
@@ -839,13 +834,71 @@ func TestSlogQueryTracerWithValuesReplaced(t *testing.T) {
 	assert.Equal(t, "SELECT * FROM accounts WHERE name IN (user-1,user-2)", record.Query)
 }
 
-func TestSlogQueryTracerUsingContextToInit(t *testing.T) {
-	var err error
-
+func TestSlogQueryTracerWithCustomLoggingFunctions(t *testing.T) {
 	buf := &bytes.Buffer{}
 	handler := slog.NewJSONHandler(buf, nil)
 	logger := slog.New(handler)
-	slogTracer := tracer.NewSlogTracer(logger)
+	slogTracer := tracer.NewSlogTracer(nil,
+		tracer.WithLogValues(),
+		tracer.WithLogAllQueries(),
+		tracer.WithLogFailedQueries(),
+		tracer.WithLogStart(func(ctx context.Context, query string, args []any) {
+			logger.Info(query, args...)
+		}),
+		tracer.WithLogEnd(func(ctx context.Context, query string, duration time.Duration) {
+			logger.Info(query, "duration", duration.String())
+		}),
+	)
+
+	dbClient, err := connectToDb(pgkit.Config{
+		Database:        "pgkit_test",
+		Host:            "localhost",
+		Username:        "postgres",
+		Password:        "postgres",
+		ConnMaxLifetime: "1h",
+		Tracer:          tracer.NewSQLTracer(slogTracer),
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer dbClient.Conn.Close()
+
+	stmt := pgkit.RawQuery("SELECT * FROM accounts WHERE name IN (?,?)")
+	q := stmt.Build("user-1", "user-2")
+
+	accounts := []*Account{}
+	// ignore err to find out if we logged the sql error using slogTracer
+	_ = dbClient.Query.GetAll(context.Background(), q, &accounts)
+
+	records := []*LogRecord{
+		{
+			Msg: "SELECT * FROM accounts WHERE name IN (user-1,user-2)",
+		},
+		{
+			Msg:      "SELECT * FROM accounts WHERE name IN (user-1,user-2)",
+			Duration: "",
+		},
+	}
+
+	var record LogRecord
+	reader := bufio.NewReader(buf)
+	for _, r := range records {
+		line, _, err := reader.ReadLine()
+		if err != nil {
+			log.Fatal(fmt.Errorf("read line: %w", err))
+		}
+		err = json.Unmarshal(line, &record)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		assert.Equal(t, "SELECT * FROM accounts WHERE name IN (user-1,user-2)", r.Msg)
+	}
+}
+
+func TestSlogQueryTracerUsingContextToInit(t *testing.T) {
+	buf, slogTracer := getTracer([]tracer.Option{})
 
 	dbClient, err := connectToDb(pgkit.Config{
 		Database:        "pgkit_test",
@@ -902,12 +955,7 @@ func TestSlogQueryTracerUsingContextToInit(t *testing.T) {
 }
 
 func TestSlogQueryTracerWithErr(t *testing.T) {
-	var err error
-
-	buf := &bytes.Buffer{}
-	handler := slog.NewJSONHandler(buf, nil)
-	logger := slog.New(handler)
-	slogTracer := tracer.NewSlogTracer(logger, tracer.WithLogAllQueries(), tracer.WithLogFailedQueries())
+	buf, slogTracer := getTracer([]tracer.Option{tracer.WithLogAllQueries(), tracer.WithLogFailedQueries()})
 
 	dbClient, err := connectToDb(pgkit.Config{
 		Database:        "pgkit_test",
@@ -955,12 +1003,7 @@ func TestSlogQueryTracerWithErr(t *testing.T) {
 }
 
 func TestSlogSlowQuery(t *testing.T) {
-	var err error
-
-	buf := &bytes.Buffer{}
-	handler := slog.NewJSONHandler(buf, nil)
-	logger := slog.New(handler)
-	slogTracer := tracer.NewSlogTracer(logger, tracer.WithLogSlowQueriesThreshold(50*time.Millisecond))
+	buf, slogTracer := getTracer([]tracer.Option{tracer.WithLogSlowQueriesThreshold(50 * time.Millisecond)})
 
 	dbClient, err := connectToDb(pgkit.Config{
 		Database:        "pgkit_test",
@@ -996,12 +1039,7 @@ func TestSlogSlowQuery(t *testing.T) {
 }
 
 func TestSlogTracerBatchQuery(t *testing.T) {
-	var err error
-
-	buf := &bytes.Buffer{}
-	handler := slog.NewJSONHandler(buf, nil)
-	logger := slog.New(handler)
-	slogTracer := tracer.NewSlogTracer(logger, tracer.WithLogAllQueries(), tracer.WithLogValues())
+	buf, slogTracer := getTracer([]tracer.Option{tracer.WithLogAllQueries(), tracer.WithLogValues()})
 
 	dbClient, err := connectToDb(pgkit.Config{
 		Database:        "pgkit_test",
@@ -1072,6 +1110,14 @@ func TestSlogTracerBatchQuery(t *testing.T) {
 		assert.Equal(t, expectedLog.Query, sqlRecord.Query)
 		assert.Equal(t, expectedLog.Msg, sqlRecord.Msg)
 	}
+}
+
+func getTracer(opts []tracer.Option) (*bytes.Buffer, *tracer.SlogTracer) {
+	buf := &bytes.Buffer{}
+	handler := slog.NewJSONHandler(buf, nil)
+	logger := slog.New(handler)
+	slogTracer := tracer.NewSlogTracer(logger, opts...)
+	return buf, slogTracer
 }
 
 func connectToDb(conf pgkit.Config) (*pgkit.DB, error) {
