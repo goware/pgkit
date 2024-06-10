@@ -13,6 +13,9 @@ var (
 	contextKeyTracingEnabled = ctxKey("tracing_enabled")
 )
 
+// Tracer
+// see: https://github.com/jackc/pgx/blob/master/tracer.go
+// Not implemented: CopyFromTracer, PrepareTracer, PrepareTracer ( not needed now )
 type Tracer interface {
 	pgx.QueryTracer
 	pgx.BatchTracer
