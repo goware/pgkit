@@ -23,7 +23,6 @@ func main() {
 		ConnMaxLifetime: "1h",
 		Tracer:          tracer.NewSlogTracer(logger, tracer.WithLogAllQueries(), tracer.WithLogValues(), tracer.WithLogFailedQueries()),
 	}
-
 	dbClient, err := pgkit.Connect("pgkit_test", conf)
 	if err != nil {
 		log.Fatal(fmt.Errorf("failed to connect dbClient: %w", err))

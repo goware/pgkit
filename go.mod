@@ -2,12 +2,9 @@ module github.com/goware/pgkit/v2
 
 go 1.22.3
 
-replace github.com/goware/pgkit/v2/tracer => ./tracer
-
 require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/georgysavva/scany/v2 v2.1.0
-	github.com/goware/pgkit/v2/tracer v0.0.0-00010101000000-000000000000
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/stretchr/testify v1.8.4
 )

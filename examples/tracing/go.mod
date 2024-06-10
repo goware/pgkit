@@ -2,13 +2,8 @@ module github.com/goware/pgkit/v2/example/tracing
 
 go 1.22.3
 
-replace github.com/goware/pgkit/v2 => ../../
-
-replace github.com/goware/pgkit/v2/tracer => ../../tracer
-
 require (
 	github.com/goware/pgkit/v2 v2.1.0
-	github.com/goware/pgkit/v2/tracer v0.0.0-00010101000000-000000000000
 )
 
 require (
