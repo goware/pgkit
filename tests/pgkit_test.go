@@ -998,8 +998,6 @@ func TestSlogSlowQuery(t *testing.T) {
 func TestSlogTracerBatchQuery(t *testing.T) {
 	var err error
 
-	t.Skip()
-
 	buf := &bytes.Buffer{}
 	handler := slog.NewJSONHandler(buf, nil)
 	logger := slog.New(handler)
@@ -1030,23 +1028,50 @@ func TestSlogTracerBatchQuery(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	r := bufio.NewReader(buf)
-
-	// first line is always `BEGIN TRANSACTION`
-	sqlLine, _, err := r.ReadLine()
-
-	sqlLine, _, err = r.ReadLine()
-	if err != nil {
-		log.Fatal(fmt.Errorf("failed to read line: %w", err))
+	expectedLogs := []LogRecord{
+		{
+			Msg:   "query start",
+			Query: "begin",
+			Args:  nil,
+		},
+		{
+			Msg:   "query end",
+			Query: "begin",
+		},
+		{
+			Msg:   "query start",
+			Query: "INSERT INTO accounts (disabled,name) VALUES (false,user-0)",
+		},
+		{
+			Msg:   "query end",
+			Query: "INSERT INTO accounts (disabled,name) VALUES (false,user-0)",
+		},
+		{
+			Msg:   "query start",
+			Query: "commit",
+		},
+		{
+			Msg:   "query end",
+			Query: "commit",
+		},
 	}
 
 	var sqlRecord LogRecord
-	err = json.Unmarshal(sqlLine, &sqlRecord)
-	if err != nil {
-		log.Fatal(err)
-	}
+	r := bufio.NewReader(buf)
+	for _, expectedLog := range expectedLogs {
+		sqlLine, _, err := r.ReadLine()
+		if err != nil {
+			log.Fatal(fmt.Errorf("read line: %w", err))
+		}
 
-	assert.Equal(t, "INSERT INTO accounts (disabled,name) VALUES (false,user-0)", sqlRecord.Query)
+		err = json.Unmarshal(sqlLine, &sqlRecord)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		assert.Equal(t, expectedLog.Query, sqlRecord.Query)
+		assert.Equal(t, expectedLog.Msg, sqlRecord.Msg)
+	}
 }
 
 func connectToDb(conf pgkit.Config) (*pgkit.DB, error) {
