@@ -38,13 +38,13 @@ func NewLogTracer(logger *slog.Logger, opts ...Option) *LogTracer {
 
 	logSlowQuery := func(ctx context.Context, query string, duration time.Duration) {
 		if logger != nil {
-			logger.LogAttrs(ctx, slog.LevelWarn, "slow query took", slog.Any("query", query), slog.String("duration", duration.String()))
+			logger.LogAttrs(ctx, slog.LevelWarn, "slow query took", slog.Any("query", query), slog.Duration("duration", duration))
 		}
 	}
 
 	logEnd := func(ctx context.Context, query string, duration time.Duration) {
 		if logger != nil {
-			logger.LogAttrs(ctx, slog.LevelInfo, "query end", slog.Any("query", query), slog.String("duration", duration.String()))
+			logger.LogAttrs(ctx, slog.LevelInfo, "query end", slog.Any("query", query), slog.Duration("duration", duration))
 		}
 	}
 
