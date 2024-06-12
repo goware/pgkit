@@ -796,7 +796,7 @@ type LogRecord struct {
 	Query    string        `json:"query,omitempty"`
 	Args     []interface{} `json:"args,omitempty"`
 	Err      string        `json:"err"`
-	Duration string        `json:"duration,omitempty"`
+	Duration time.Duration `json:"duration,omitempty"`
 }
 
 func TestSlogQueryTracerWithValuesReplaced(t *testing.T) {
@@ -831,7 +831,7 @@ func TestSlogQueryTracerWithValuesReplaced(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	assert.Equal(t, "SELECT * FROM accounts WHERE name IN (user-1,user-2)", record.Query)
+	assert.Equal(t, "SELECT * FROM accounts WHERE name IN (\"user-1\",\"user-2\")", record.Query)
 }
 
 func TestSlogQueryTracerWithCustomLoggingFunctions(t *testing.T) {
@@ -846,7 +846,7 @@ func TestSlogQueryTracerWithCustomLoggingFunctions(t *testing.T) {
 			logger.Info(query, args...)
 		}),
 		tracer.WithLogEndHook(func(ctx context.Context, query string, duration time.Duration) {
-			logger.Info(query, "duration", duration.String())
+			logger.Info(query, slog.Duration("duration", duration))
 		}),
 	)
 
@@ -877,7 +877,7 @@ func TestSlogQueryTracerWithCustomLoggingFunctions(t *testing.T) {
 		},
 		{
 			Msg:      "SELECT * FROM accounts WHERE name IN (user-1,user-2)",
-			Duration: "",
+			Duration: 0,
 		},
 	}
 
@@ -1078,11 +1078,11 @@ func TestSlogTracerBatchQuery(t *testing.T) {
 		},
 		{
 			Msg:   "query start",
-			Query: "INSERT INTO accounts (disabled,name) VALUES (false,user-0)",
+			Query: "INSERT INTO accounts (disabled,name) VALUES (false,\"user-0\")",
 		},
 		{
 			Msg:   "query end",
-			Query: "INSERT INTO accounts (disabled,name) VALUES (false,user-0)",
+			Query: "INSERT INTO accounts (disabled,name) VALUES (false,\"user-0\")",
 		},
 		{
 			Msg:   "query start",

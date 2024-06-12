@@ -1,12 +1,13 @@
 package tracer
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -84,9 +85,7 @@ func NewLogTracer(logger *slog.Logger, opts ...Option) *LogTracer {
 func (l *LogTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	query := data.SQL
 	if l.LogValues {
-		for i, placeholder := range data.Args {
-			query = strings.Replace(query, fmt.Sprintf("$%d", i+1), fmt.Sprintf("%v", placeholder), 1)
-		}
+		query = replacePlaceholders(query, data.Args)
 	}
 
 	if l.LogAllQueries || isTracingEnabled(ctx) {
@@ -155,4 +154,45 @@ func getCtxQueryStart(ctx context.Context) time.Time {
 	}
 
 	return queryStart
+}
+
+func replacePlaceholders(query string, args []interface{}) string {
+	var buffer bytes.Buffer
+	argIndex := 1
+	queryLen := len(query)
+
+	for i := 0; i < queryLen; i++ {
+		if query[i] == '$' && i+1 < queryLen {
+			next := i + 1
+			numStart := next
+
+			// Find the end of the placeholder
+			for next < queryLen && query[next] >= '0' && query[next] <= '9' {
+				next++
+			}
+
+			// Extract the number
+			if numStart < next {
+				placeholderNum, err := strconv.Atoi(query[numStart:next])
+				if err == nil && placeholderNum == argIndex {
+					switch args[argIndex-1].(type) {
+					case bool:
+						buffer.WriteString(fmt.Sprintf("%t", args[argIndex-1]))
+					case int:
+						buffer.WriteString(fmt.Sprintf("%d", args[argIndex-1]))
+					case float64, float32:
+						buffer.WriteString(fmt.Sprintf("%f", args[argIndex-1]))
+					default:
+						buffer.WriteString(fmt.Sprintf("%q", args[argIndex-1]))
+					}
+					argIndex++
+					i = next - 1
+					continue
+				}
+			}
+		}
+		buffer.WriteByte(query[i])
+	}
+
+	return buffer.String()
 }
