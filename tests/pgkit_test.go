@@ -1,18 +1,25 @@
 package pgkit_test
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"log/slog"
 	"sort"
 	"testing"
+	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/goware/pgkit/v2"
 	"github.com/goware/pgkit/v2/db"
 	"github.com/goware/pgkit/v2/dbtype"
+	"github.com/goware/pgkit/v2/tracer"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +31,7 @@ var (
 
 func init() {
 	var err error
-	DB, err = pgkit.Connect("pgkit_test", pgkit.Config{
+	DB, err = connectToDb(pgkit.Config{
 		Database:        "pgkit_test",
 		Host:            "localhost",
 		Username:        "postgres",
@@ -782,6 +789,348 @@ func TestRawStatementQuery(t *testing.T) {
 	err = DB.Query.GetAll(context.Background(), q, &accounts)
 	require.NoError(t, err)
 	require.Len(t, accounts, 2)
+}
+
+type LogRecord struct {
+	Msg      string        `json:"msg,omitempty"`
+	Query    string        `json:"query,omitempty"`
+	Args     []interface{} `json:"args,omitempty"`
+	Err      string        `json:"err"`
+	Duration time.Duration `json:"duration,omitempty"`
+}
+
+func TestSlogQueryTracerWithValuesReplaced(t *testing.T) {
+	buf, slogTracer := getTracer([]tracer.Option{tracer.WithLogAllQueries(), tracer.WithLogValues(), tracer.WithLogFailedQueries()})
+
+	dbClient, err := connectToDb(pgkit.Config{
+		Database:        "pgkit_test",
+		Host:            "localhost",
+		Username:        "postgres",
+		Password:        "postgres",
+		ConnMaxLifetime: "1h",
+		Tracer:          tracer.NewSQLTracer(slogTracer),
+	})
+
+	defer dbClient.Conn.Close()
+
+	stmt := pgkit.RawQuery("SELECT * FROM accounts WHERE name IN (?,?)")
+	q := stmt.Build("user-1", "user-2")
+
+	accounts := []*Account{}
+	// ignore err to find out if we logged the sql error using slogTracer
+	_ = dbClient.Query.GetAll(context.Background(), q, &accounts)
+
+	r := bufio.NewReader(buf)
+	line, _, err := r.ReadLine()
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to read line: %w", err))
+	}
+	var record LogRecord
+	err = json.Unmarshal(line, &record)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	assert.Equal(t, "SELECT * FROM accounts WHERE name IN (\"user-1\",\"user-2\")", record.Query)
+}
+
+func TestSlogQueryTracerWithCustomLoggingFunctions(t *testing.T) {
+	buf := &bytes.Buffer{}
+	handler := slog.NewJSONHandler(buf, nil)
+	logger := slog.New(handler)
+	slogTracer := tracer.NewLogTracer(nil,
+		tracer.WithLogValues(),
+		tracer.WithLogAllQueries(),
+		tracer.WithLogFailedQueries(),
+		tracer.WithLogStartHook(func(ctx context.Context, query string, args []any) {
+			logger.Info(query, args...)
+		}),
+		tracer.WithLogEndHook(func(ctx context.Context, query string, duration time.Duration) {
+			logger.Info(query, slog.Duration("duration", duration))
+		}),
+	)
+
+	dbClient, err := connectToDb(pgkit.Config{
+		Database:        "pgkit_test",
+		Host:            "localhost",
+		Username:        "postgres",
+		Password:        "postgres",
+		ConnMaxLifetime: "1h",
+		Tracer:          tracer.NewSQLTracer(slogTracer),
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer dbClient.Conn.Close()
+
+	stmt := pgkit.RawQuery("SELECT * FROM accounts WHERE name IN (?,?)")
+	q := stmt.Build("user-1", "user-2")
+
+	accounts := []*Account{}
+	// ignore err to find out if we logged the sql error using slogTracer
+	_ = dbClient.Query.GetAll(context.Background(), q, &accounts)
+
+	records := []*LogRecord{
+		{
+			Msg: "SELECT * FROM accounts WHERE name IN (user-1,user-2)",
+		},
+		{
+			Msg:      "SELECT * FROM accounts WHERE name IN (user-1,user-2)",
+			Duration: 0,
+		},
+	}
+
+	var record LogRecord
+	reader := bufio.NewReader(buf)
+	for _, r := range records {
+		line, _, err := reader.ReadLine()
+		if err != nil {
+			log.Fatal(fmt.Errorf("read line: %w", err))
+		}
+		err = json.Unmarshal(line, &record)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		assert.Equal(t, "SELECT * FROM accounts WHERE name IN (user-1,user-2)", r.Msg)
+	}
+}
+
+func TestSlogQueryTracerUsingContextToInit(t *testing.T) {
+	buf, slogTracer := getTracer([]tracer.Option{})
+
+	dbClient, err := connectToDb(pgkit.Config{
+		Database:        "pgkit_test",
+		Host:            "localhost",
+		Username:        "postgres",
+		Password:        "postgres",
+		ConnMaxLifetime: "1h",
+		Tracer:          tracer.NewSQLTracer(slogTracer),
+	})
+
+	defer dbClient.Conn.Close()
+
+	stmt := pgkit.RawQuery("SELECT * FROM accounts WHERE name IN (?,?)")
+	q := stmt.Build("user-1", "user-2")
+
+	accounts := []*Account{}
+	// ignore err to find out if we logged the sql error using slogTracer
+	ctx := context.Background()
+	ctx = tracer.WithTracingEnabled(ctx)
+
+	_ = dbClient.Query.GetAll(ctx, q, &accounts)
+	_ = dbClient.Query.GetAll(context.Background(), q, &accounts)
+
+	r := bufio.NewReader(buf)
+	line, _, err := r.ReadLine()
+	if err != nil {
+		log.Fatal(fmt.Errorf("read line: %w", err))
+	}
+	var record LogRecord
+	err = json.Unmarshal(line, &record)
+	if err != nil {
+		log.Fatal(err)
+	}
+	assert.Equal(t, "SELECT * FROM accounts WHERE name IN ($1,$2)", record.Query)
+
+	line, _, err = r.ReadLine()
+	if err != nil {
+		log.Fatal(fmt.Errorf("read line: %w", err))
+	}
+	err = json.Unmarshal(line, &record)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	assert.Equal(t, "SELECT * FROM accounts WHERE name IN ($1,$2)", record.Query)
+	assert.Equal(t, "query end", record.Msg)
+
+	// second line does not exist
+	// because we passed context without logging enabled
+	line, _, err = r.ReadLine()
+	if err != io.EOF {
+		log.Fatal(fmt.Errorf("expected EOF, got: %s: %w", string(line), err))
+	}
+}
+
+func TestSlogQueryTracerWithErr(t *testing.T) {
+	buf, slogTracer := getTracer([]tracer.Option{tracer.WithLogAllQueries(), tracer.WithLogFailedQueries()})
+
+	dbClient, err := connectToDb(pgkit.Config{
+		Database:        "pgkit_test",
+		Host:            "localhost",
+		Username:        "postgres",
+		Password:        "postgres",
+		ConnMaxLifetime: "1h",
+		Tracer:          tracer.NewSQLTracer(slogTracer),
+	})
+
+	defer dbClient.Conn.Close()
+
+	stmt := pgkit.RawQuery("SELECT random_columns FROM accounts WHERE name IN (?,?)")
+	q := stmt.Build("user-1", "user-2")
+
+	accounts := []*Account{}
+	// ignore err to find out if we logged the sql error using slogTracer
+	_ = dbClient.Query.GetAll(context.Background(), q, &accounts)
+
+	r := bufio.NewReader(buf)
+	sqlLine, _, err := r.ReadLine()
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to read line: %w", err))
+	}
+	var sqlRecord LogRecord
+	err = json.Unmarshal(sqlLine, &sqlRecord)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	errLine, _, err := r.ReadLine()
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to read line: %w", err))
+	}
+
+	var errRecord LogRecord
+	err = json.Unmarshal(errLine, &errRecord)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	assert.Equal(t, "SELECT random_columns FROM accounts WHERE name IN ($1,$2)", sqlRecord.Query)
+	assert.Equal(t, "SELECT random_columns FROM accounts WHERE name IN ($1,$2)", errRecord.Query)
+	assert.Equal(t, "ERROR: column \"random_columns\" does not exist (SQLSTATE 42703)", errRecord.Err)
+}
+
+func TestSlogSlowQuery(t *testing.T) {
+	buf, slogTracer := getTracer([]tracer.Option{tracer.WithLogSlowQueriesThreshold(50 * time.Millisecond)})
+
+	dbClient, err := connectToDb(pgkit.Config{
+		Database:        "pgkit_test",
+		Host:            "localhost",
+		Username:        "postgres",
+		Password:        "postgres",
+		ConnMaxLifetime: "1h",
+		Tracer:          tracer.NewSQLTracer(slogTracer),
+	})
+
+	defer dbClient.Conn.Close()
+
+	stmt := pgkit.RawQuery("SELECT pg_sleep(0.1)")
+
+	_, err = dbClient.Query.Exec(context.Background(), stmt.Build())
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to exec sql: %w", err))
+	}
+	r := bufio.NewReader(buf)
+	sqlLine, _, err := r.ReadLine()
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to read line: %w", err))
+	}
+
+	var sqlRecord LogRecord
+	err = json.Unmarshal(sqlLine, &sqlRecord)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	assert.Equal(t, "SELECT pg_sleep(0.1)", sqlRecord.Query)
+	assert.Regexp(t, "10.*ms$", sqlRecord.Duration)
+}
+
+func TestSlogTracerBatchQuery(t *testing.T) {
+	buf, slogTracer := getTracer([]tracer.Option{tracer.WithLogAllQueries(), tracer.WithLogValues()})
+
+	dbClient, err := connectToDb(pgkit.Config{
+		Database:        "pgkit_test",
+		Host:            "localhost",
+		Username:        "postgres",
+		Password:        "postgres",
+		ConnMaxLifetime: "1h",
+		Tracer:          tracer.NewSQLTracer(slogTracer),
+	})
+
+	defer dbClient.Conn.Close()
+
+	ctx := context.Background()
+	err = pgx.BeginFunc(context.Background(), dbClient.Conn, func(tx pgx.Tx) error {
+		queries := pgkit.Queries{}
+
+		for i := 0; i < 10; i++ {
+			rec := &Account{Name: fmt.Sprintf("user-%d", i)}
+			queries.Add(DB.SQL.InsertRecord(rec))
+		}
+
+		_, err := dbClient.TxQuery(tx).BatchExec(ctx, queries)
+		return err
+	})
+	assert.NoError(t, err)
+
+	expectedLogs := []LogRecord{
+		{
+			Msg:   "query start",
+			Query: "begin",
+			Args:  nil,
+		},
+		{
+			Msg:   "query end",
+			Query: "begin",
+		},
+		{
+			Msg:   "query start",
+			Query: "INSERT INTO accounts (disabled,name) VALUES (false,\"user-0\")",
+		},
+		{
+			Msg:   "query end",
+			Query: "INSERT INTO accounts (disabled,name) VALUES (false,\"user-0\")",
+		},
+		{
+			Msg:   "query start",
+			Query: "commit",
+		},
+		{
+			Msg:   "query end",
+			Query: "commit",
+		},
+	}
+
+	var sqlRecord LogRecord
+	r := bufio.NewReader(buf)
+	for _, expectedLog := range expectedLogs {
+		sqlLine, _, err := r.ReadLine()
+		if err != nil {
+			log.Fatal(fmt.Errorf("read line: %w", err))
+		}
+
+		err = json.Unmarshal(sqlLine, &sqlRecord)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		assert.Equal(t, expectedLog.Query, sqlRecord.Query)
+		assert.Equal(t, expectedLog.Msg, sqlRecord.Msg)
+	}
+}
+
+func getTracer(opts []tracer.Option) (*bytes.Buffer, *tracer.LogTracer) {
+	buf := &bytes.Buffer{}
+	handler := slog.NewJSONHandler(buf, nil)
+	logger := slog.New(handler)
+	slogTracer := tracer.NewLogTracer(logger, opts...)
+	return buf, slogTracer
+}
+
+func connectToDb(conf pgkit.Config) (*pgkit.DB, error) {
+	dbClient, err := pgkit.Connect("pgkit_test", conf)
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to connect dbClient: %w", err))
+	}
+
+	err = dbClient.Conn.Ping(context.Background())
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to ping dbClient: %w", err))
+	}
+	return dbClient, err
 }
 
 func hexEncode(b []byte) string {

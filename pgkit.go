@@ -34,6 +34,7 @@ type Config struct {
 	ConnMaxLifetime string `toml:"conn_max_lifetime"` // ie. "1800s" or "1h"
 
 	Override func(cfg *pgx.ConnConfig) `toml:"-"`
+	Tracer   pgx.QueryTracer
 }
 
 func Connect(appName string, cfg Config) (*DB, error) {
@@ -61,6 +62,7 @@ func Connect(appName string, cfg Config) (*DB, error) {
 
 	poolCfg.HealthCheckPeriod = time.Minute
 
+	poolCfg.ConnConfig.Tracer = cfg.Tracer
 	// override settings on *pgx.ConnConfig object
 	if cfg.Override != nil {
 		cfg.Override(poolCfg.ConnConfig)
