@@ -134,6 +134,23 @@ func TestSugarInsertAndSelectRecords(t *testing.T) {
 	assert.Equal(t, "joe", accounts[0].Name)
 }
 
+func TestGetOneInTransaction(t *testing.T) {
+	ctx := context.Background()
+	q2 := DB.SQL.Select("*").From("accounts")
+
+	var account Account
+	tx, err := DB.Conn.BeginTx(ctx, pgx.TxOptions{})
+	assert.NoError(t, err)
+
+	defer tx.Rollback(ctx)
+
+	err = DB.TxQuery(tx).GetOne(ctx, q2, &account)
+	assert.NoError(t, err)
+
+	err = tx.Commit(ctx)
+	assert.NoError(t, err)
+}
+
 func TestSugarInsertAndSelectRecordsReturningID(t *testing.T) {
 	truncateTable(t, "accounts")
 
