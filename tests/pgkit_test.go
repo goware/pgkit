@@ -139,15 +139,14 @@ func TestGetOneInTransaction(t *testing.T) {
 	q2 := DB.SQL.Select("*").From("accounts")
 
 	var account Account
-	tx, err := DB.Conn.BeginTx(ctx, pgx.TxOptions{})
-	assert.NoError(t, err)
+	err := pgx.BeginFunc(ctx, DB.Conn, func(tx pgx.Tx) error {
+		if err := DB.TxQuery(tx).GetOne(ctx, q2, &account); err != nil {
+			return fmt.Errorf("get one: %w", err)
+		}
 
-	defer tx.Rollback(ctx)
+		return nil
+	})
 
-	err = DB.TxQuery(tx).GetOne(ctx, q2, &account)
-	assert.NoError(t, err)
-
-	err = tx.Commit(ctx)
 	assert.NoError(t, err)
 }
 
