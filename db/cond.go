@@ -211,29 +211,34 @@ func In[T interface{}](v ...T) squirrel.Sqlizer {
 func InMultiples[T any](v [][]T) squirrel.Sqlizer {
 	return sqlExprFn(func() (string, []interface{}, error) {
 		if len(v) == 0 {
-			return "IN ()", nil, nil
+			return "", nil, fmt.Errorf("0 args were passed to IN clause")
 		}
 
-		var args []interface{}
-		var placeholders []string
-		for _, param := range v {
-			var subPlaceholders []string
-			for _, p := range param {
-				subPlaceholders = append(subPlaceholders, "?")
+		elements := 0
+		for _, subSlice := range v {
+			elements += len(subSlice)
+		}
 
+		args := make([]interface{}, 0, elements)
+		placeholders := make([]string, len(v))
+
+		for i, params := range v {
+			subPlaceholders := make([]string, len(params))
+			for j, p := range params {
+				subPlaceholders[j] = "?"
 				if val, ok := any(p).(driver.Valuer); ok {
 					value, err := val.Value()
 					if err != nil {
 						return "", nil, err
 					}
-					args = append(args, value)
-					continue
-				}
 
-				args = append(args, p)
+					args = append(args, value)
+				} else {
+					args = append(args, p)
+				}
 			}
 
-			placeholders = append(placeholders, "("+strings.Join(subPlaceholders, ",")+")")
+			placeholders[i] = "(" + strings.Join(subPlaceholders, ",") + ")"
 		}
 
 		sql := "IN (" + strings.Join(placeholders, ",") + ")"
@@ -258,7 +263,7 @@ func Raw(sql string, args ...interface{}) squirrel.Sqlizer {
 func Func[T interface{}](name string, params ...T) squirrel.Sqlizer {
 	return sqlExprFn(func() (string, []interface{}, error) {
 		if len(params) == 0 {
-			return name + " ()", nil, nil
+			return name + "", nil, fmt.Errorf("0 args were passed to IN clause")
 		}
 
 		places := make([]string, len(params))
