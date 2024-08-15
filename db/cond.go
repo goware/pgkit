@@ -3,7 +3,6 @@ package db
 import (
 	"database/sql/driver"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/Masterminds/squirrel"
@@ -208,39 +207,36 @@ func In[T interface{}](v ...T) squirrel.Sqlizer {
 	return Func[T]("IN", v...)
 }
 
-// In represents an IN operator. The value must be variadic.
-func InMultiple[T interface{}](v [][]T) squirrel.Sqlizer {
+// InMultiples represents an IN operator. The value must be variadic.
+func InMultiples[T any](v [][]T) squirrel.Sqlizer {
 	return sqlExprFn(func() (string, []interface{}, error) {
 		if len(v) == 0 {
 			return "IN ()", nil, nil
 		}
 
-		args := make([]interface{}, 0)
-		sql := "IN ("
-
-		for i, param := range v {
-			sql += "("
-			sql += strings.Repeat("?,", len(param))
-			sql = strings.TrimSuffix(sql, ",")
-			sql += ")"
+		var args []interface{}
+		var placeholders []string
+		for _, param := range v {
+			var subPlaceholders []string
 			for _, p := range param {
-				switch v := any(p).(type) {
-				case driver.Valuer:
-					value, err := v.Value()
+				subPlaceholders = append(subPlaceholders, "?")
+
+				if val, ok := any(p).(driver.Valuer); ok {
+					value, err := val.Value()
 					if err != nil {
-						log.Fatal(err)
+						return "", nil, err
 					}
 					args = append(args, value)
 					continue
 				}
+
 				args = append(args, p)
 			}
 
-			if len(v)-1 != i {
-				sql += ","
-			}
+			placeholders = append(placeholders, "("+strings.Join(subPlaceholders, ",")+")")
 		}
-		sql += ")"
+
+		sql := "IN (" + strings.Join(placeholders, ",") + ")"
 
 		return sql, args, nil
 	})

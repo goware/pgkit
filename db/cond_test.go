@@ -19,6 +19,14 @@ func TestCond(t *testing.T) {
 		assert.Equal(t, "one = ?", s)
 	})
 
+	t.Run("equal to with multiple parameters", func(t *testing.T) {
+		cond := db.And{db.Cond{"one": 1}, db.Cond{"two": 2}}
+		s, args, err := cond.ToSql()
+		require.NoError(t, err)
+		assert.Equal(t, []interface{}{1, 2}, args)
+		assert.Equal(t, "(one = ? AND two = ?)", s)
+	})
+
 	t.Run("equal to (inverted)", func(t *testing.T) {
 		cond := db.Cond{1: "one"}
 		s, args, err := cond.ToSql()
@@ -73,12 +81,21 @@ func TestCond(t *testing.T) {
 	})
 
 	t.Run("MULTIPLE IN with slice", func(t *testing.T) {
-		cond := db.Cond{"list": db.InMultiple([][]string{{"1", "2", "3"}, {"3", "4", "5"}})}
+		cond := db.Cond{"list": db.InMultiples([][]string{{"1", "2", "3"}, {"3", "4", "5"}})}
 		s, args, err := cond.ToSql()
 		require.NoError(t, err)
 
 		assert.Equal(t, []interface{}{"1", "2", "3", "3", "4", "5"}, args)
 		assert.Equal(t, "list IN ((?,?,?),(?,?,?))", s)
+	})
+
+	t.Run("MULTIPLE IN with slice AND where ID", func(t *testing.T) {
+		cond := db.And{db.Cond{"list": db.InMultiples([][]string{{"1", "2", "3"}, {"3", "4", "5"}})}, db.Cond{"id": 1}}
+		s, args, err := cond.ToSql()
+		require.NoError(t, err)
+
+		assert.Equal(t, []interface{}{"1", "2", "3", "3", "4", "5", 1}, args)
+		assert.Equal(t, "(list IN ((?,?,?),(?,?,?)) AND id = ?)", s)
 	})
 
 	t.Run("MULTIPLE IN with struct", func(t *testing.T) {
@@ -95,7 +112,7 @@ func TestCond(t *testing.T) {
 			data = append(data, []interface{}{s.Id, s.Name})
 		}
 
-		cond := db.Cond{"list": db.InMultiple(data)}
+		cond := db.Cond{"list": db.InMultiples(data)}
 		s, args, err := cond.ToSql()
 		require.NoError(t, err)
 
