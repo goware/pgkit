@@ -81,6 +81,28 @@ func TestCond(t *testing.T) {
 		assert.Equal(t, "list IN ((?,?,?),(?,?,?))", s)
 	})
 
+	t.Run("MULTIPLE IN with struct", func(t *testing.T) {
+		randomStruct := []struct {
+			Id   uint64
+			Name string
+		}{
+			{Id: 1, Name: "Lukas"},
+			{Id: 2, Name: "David"},
+		}
+
+		data := [][]interface{}{}
+		for _, s := range randomStruct {
+			data = append(data, []interface{}{s.Id, s.Name})
+		}
+
+		cond := db.Cond{"list": db.InMultiple(data)}
+		s, args, err := cond.ToSql()
+		require.NoError(t, err)
+
+		assert.Equal(t, []interface{}{uint64(1), "Lukas", uint64(2), "David"}, args)
+		assert.Equal(t, "list IN ((?,?),(?,?))", s)
+	})
+
 	t.Run("NOT IN", func(t *testing.T) {
 		cond := db.Cond{"list": db.NotIn("Czech Republic", "Slovakia")}
 		s, args, err := cond.ToSql()
