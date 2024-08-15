@@ -206,6 +206,35 @@ func In[T interface{}](v ...T) squirrel.Sqlizer {
 	return Func[T]("IN", v...)
 }
 
+// In represents an IN operator. The value must be variadic.
+func InMultiple[T interface{}](v ...[][]T) squirrel.Sqlizer {
+	return sqlExprFn(func() (string, []interface{}, error) {
+		if len(v) == 0 {
+			return "IN ()", nil, nil
+		}
+
+		args := make([]interface{}, 0)
+		sql := "IN ("
+
+		for i, param := range v[0] {
+			sql += "("
+			sql += strings.Repeat("?,", len(param))
+			sql = strings.TrimSuffix(sql, ",")
+			sql += ")"
+			for _, p := range param {
+				args = append(args, p)
+			}
+
+			if len(v[0])-1 != i {
+				sql += ","
+			}
+		}
+		sql += ")"
+
+		return sql, args, nil
+	})
+}
+
 // NotIn represents a NOT IN operator. The value must be variadic.
 func NotIn[T interface{}](v ...T) squirrel.Sqlizer {
 	return Func[T]("NOT IN", v...)

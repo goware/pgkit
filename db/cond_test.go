@@ -72,6 +72,15 @@ func TestCond(t *testing.T) {
 		assert.Equal(t, "list IN (?, ?, ?)", s)
 	})
 
+	t.Run("MULTIPLE IN with slice", func(t *testing.T) {
+		cond := db.Cond{"list": db.InMultiple([][]string{{"1", "2", "3"}, {"3", "4", "5"}})}
+		s, args, err := cond.ToSql()
+		require.NoError(t, err)
+
+		assert.Equal(t, []interface{}{"1", "2", "3", "3", "4", "5"}, args)
+		assert.Equal(t, "list IN ((?,?,?),(?,?,?))", s)
+	})
+
 	t.Run("NOT IN", func(t *testing.T) {
 		cond := db.Cond{"list": db.NotIn("Czech Republic", "Slovakia")}
 		s, args, err := cond.ToSql()
