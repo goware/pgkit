@@ -1,7 +1,9 @@
 package db
 
 import (
+	"database/sql/driver"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/Masterminds/squirrel"
@@ -207,7 +209,7 @@ func In[T interface{}](v ...T) squirrel.Sqlizer {
 }
 
 // In represents an IN operator. The value must be variadic.
-func InMultiple[T interface{}](v ...[][]T) squirrel.Sqlizer {
+func InMultiple[T interface{}](v [][]T) squirrel.Sqlizer {
 	return sqlExprFn(func() (string, []interface{}, error) {
 		if len(v) == 0 {
 			return "IN ()", nil, nil
@@ -216,16 +218,25 @@ func InMultiple[T interface{}](v ...[][]T) squirrel.Sqlizer {
 		args := make([]interface{}, 0)
 		sql := "IN ("
 
-		for i, param := range v[0] {
+		for i, param := range v {
 			sql += "("
 			sql += strings.Repeat("?,", len(param))
 			sql = strings.TrimSuffix(sql, ",")
 			sql += ")"
 			for _, p := range param {
+				switch v := any(p).(type) {
+				case driver.Valuer:
+					value, err := v.Value()
+					if err != nil {
+						log.Fatal(err)
+					}
+					args = append(args, value)
+					continue
+				}
 				args = append(args, p)
 			}
 
-			if len(v[0])-1 != i {
+			if len(v)-1 != i {
 				sql += ","
 			}
 		}
