@@ -273,6 +273,16 @@ func Func[T interface{}](name string, params ...T) squirrel.Sqlizer {
 				places[i] = paramSql
 				args = append(args, paramArgs...)
 			} else {
+				if val, ok := any(param).(driver.Valuer); ok {
+					value, err := val.Value()
+					if err != nil {
+						return "", nil, err
+					}
+					places[i] = paramPlaceholder
+					args = append(args, value)
+					continue
+				}
+
 				places[i] = paramPlaceholder
 				args = append(args, param)
 			}
