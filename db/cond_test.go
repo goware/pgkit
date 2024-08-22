@@ -4,19 +4,27 @@ import (
 	"testing"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/goware/pgkit/v2/db"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/goware/pgkit/v2/db"
 )
 
 func TestCond(t *testing.T) {
-
 	t.Run("equal to", func(t *testing.T) {
 		cond := db.Cond{"one": 1}
 		s, args, err := cond.ToSql()
 		require.NoError(t, err)
 		assert.Equal(t, []interface{}{1}, args)
 		assert.Equal(t, "one = ?", s)
+	})
+
+	t.Run("equal to with multiple parameters", func(t *testing.T) {
+		cond := db.And{db.Cond{"one": 1}, db.Cond{"two": 2}}
+		s, args, err := cond.ToSql()
+		require.NoError(t, err)
+		assert.Equal(t, []interface{}{1, 2}, args)
+		assert.Equal(t, "(one = ? AND two = ?)", s)
 	})
 
 	t.Run("equal to (inverted)", func(t *testing.T) {
@@ -64,12 +72,64 @@ func TestCond(t *testing.T) {
 	})
 
 	t.Run("IN with slice", func(t *testing.T) {
+		sl1 := []int{1, 2, 3}
+		cond := db.Cond{"list": db.In(sl1...)}
+		s, args, err := cond.ToSql()
+		require.NoError(t, err)
+
+		assert.Equal(t, []interface{}{1, 2, 3}, args)
+		assert.Equal(t, "list IN (?, ?, ?)", s)
+	})
+
+	t.Run("IN with slice variadic", func(t *testing.T) {
 		cond := db.Cond{"list": db.In(1, 2, 3)}
 		s, args, err := cond.ToSql()
 		require.NoError(t, err)
 
 		assert.Equal(t, []interface{}{1, 2, 3}, args)
 		assert.Equal(t, "list IN (?, ?, ?)", s)
+	})
+
+	t.Run("multiple IN with slice", func(t *testing.T) {
+		sl1 := []int{1, 2, 3}
+		sl2 := []int{4, 5, 6}
+		cond := db.Cond{"list": db.In([]interface{}{sl1, sl2}...)}
+		s, args, err := cond.ToSql()
+		require.NoError(t, err)
+
+		assert.Equal(t, []interface{}{1, 2, 3, 4, 5, 6}, args)
+		assert.Equal(t, "list IN ((?,?,?),(?,?,?))", s)
+	})
+
+	t.Run("multiple IN with slice AND where ID", func(t *testing.T) {
+		cond := db.And{db.Cond{"list": db.In([][]string{{"1", "2", "3"}, {"3", "4", "5"}}...)}, db.Cond{"id": 1}}
+		s, args, err := cond.ToSql()
+		require.NoError(t, err)
+
+		assert.Equal(t, []interface{}{"1", "2", "3", "3", "4", "5", 1}, args)
+		assert.Equal(t, "(list IN ((?,?,?),(?,?,?)) AND id = ?)", s)
+	})
+
+	t.Run("multiple IN with struct", func(t *testing.T) {
+		randomStruct := []struct {
+			Id   uint64
+			Name string
+		}{
+			{Id: 1, Name: "Lukas"},
+			{Id: 2, Name: "David"},
+		}
+
+		data := [][]interface{}{}
+		for _, s := range randomStruct {
+			data = append(data, []interface{}{s.Id, s.Name})
+		}
+
+		cond := db.Cond{"list": db.In(data...)}
+		s, args, err := cond.ToSql()
+		require.NoError(t, err)
+
+		assert.Equal(t, []interface{}{uint64(1), "Lukas", uint64(2), "David"}, args)
+		assert.Equal(t, "list IN ((?,?),(?,?))", s)
 	})
 
 	t.Run("NOT IN", func(t *testing.T) {

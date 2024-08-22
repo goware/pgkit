@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/Masterminds/squirrel"
@@ -80,7 +81,6 @@ func (n *binaryExprNode) ToSql() (string, []interface{}, error) {
 func compileNodes(nodes []squirrel.Sqlizer) (q string, args []interface{}, err error) {
 	for i, node := range nodes {
 		qn, argsn, err := node.ToSql()
-
 		if err != nil {
 			return "", nil, fmt.Errorf("error compiling node %d: %w", i, err)
 		}
@@ -203,12 +203,12 @@ func NotILike(v interface{}) squirrel.Sqlizer {
 
 // In represents an IN operator. The value must be variadic.
 func In[T interface{}](v ...T) squirrel.Sqlizer {
-	return Func[T]("IN", v...)
+	return Func("IN", v...)
 }
 
 // NotIn represents a NOT IN operator. The value must be variadic.
 func NotIn[T interface{}](v ...T) squirrel.Sqlizer {
-	return Func[T]("NOT IN", v...)
+	return Func("NOT IN", v...)
 }
 
 // Raw represents a raw SQL expression.
@@ -226,15 +226,58 @@ func Func[T interface{}](name string, params ...T) squirrel.Sqlizer {
 		}
 
 		places := make([]string, len(params))
-		args := make([]interface{}, 0, len(params))
 
+		// iterating through slices
+		if reflect.TypeOf(params[0]).Kind() == reflect.Slice {
+			elements := 0
+			for _, subSlice := range params {
+				v := reflect.ValueOf(subSlice)
+				elements += v.Len()
+			}
+
+			args := make([]interface{}, 0, elements)
+
+			for i, subSlice := range params {
+				subSliceVal := reflect.ValueOf(subSlice)
+				subPlaces := make([]string, subSliceVal.Len())
+
+				for j := 0; j < subSliceVal.Len(); j++ {
+					val := subSliceVal.Index(j).Interface()
+					if sqlizer, ok := interface{}(val).(squirrel.Sqlizer); ok {
+						paramSQL, paramArgs, err := sqlizer.ToSql()
+						if err != nil {
+							return "", nil, fmt.Errorf("%s: error compiling argument %d: %w", name, i, err)
+						}
+
+						subPlaces[j] = paramSQL
+						args = append(args, paramArgs...)
+					} else if reflect.TypeOf(val).Kind() == reflect.Slice {
+						v := reflect.ValueOf(val)
+						for k := 0; k < v.Len(); k++ {
+							subPlaces[j] = paramPlaceholder
+							args = append(args, v.Index(k).Interface())
+						}
+					} else {
+						subPlaces[j] = paramPlaceholder
+						args = append(args, val)
+					}
+				}
+
+				places[i] = "(" + strings.Join(subPlaces, ",") + ")"
+			}
+
+			return name + " (" + strings.Join(places, ",") + ")", args, nil
+		}
+
+		args := make([]interface{}, 0, len(params))
 		for i, param := range params {
 			if sqlizer, ok := interface{}(param).(squirrel.Sqlizer); ok {
-				paramSql, paramArgs, err := sqlizer.ToSql()
+				paramSQL, paramArgs, err := sqlizer.ToSql()
 				if err != nil {
 					return "", nil, fmt.Errorf("%s: error compiling argument %d: %w", name, i, err)
 				}
-				places[i] = paramSql
+
+				places[i] = paramSQL
 				args = append(args, paramArgs...)
 			} else {
 				places[i] = paramPlaceholder
