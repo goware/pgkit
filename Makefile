@@ -42,7 +42,12 @@ test: test-clean
 test-all: test-clean
 	GOGC=off go test $(TEST_FLAGS) $(MOD_VENDOR) -run=$(TEST) ./...
 
+test-all-tparse: test-clean
+	GOGC=off go test $(TEST_FLAGS) $(MOD_VENDOR) -run=$(TEST) ./... -json | tparse --follow
+
 test-with-reset: db-reset test-all
+
+test-with-reset-tparse: db-reset test-all-tparse
 
 test-clean:
 	GOGC=off go clean -testcache
