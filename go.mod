@@ -1,6 +1,6 @@
 module github.com/goware/pgkit/v2
 
-go 1.22.3
+go 1.21
 
 require (
 	github.com/Masterminds/squirrel v1.5.4
