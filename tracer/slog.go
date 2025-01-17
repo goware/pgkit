@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -166,7 +168,6 @@ func replacePlaceholders(query string, args []interface{}) string {
 			next := i + 1
 			numStart := next
 
-			// Find the end of the placeholder
 			for next < queryLen && query[next] >= '0' && query[next] <= '9' {
 				next++
 			}
@@ -175,16 +176,7 @@ func replacePlaceholders(query string, args []interface{}) string {
 			if numStart < next {
 				placeholderNum, err := strconv.Atoi(query[numStart:next])
 				if err == nil && placeholderNum == argIndex {
-					switch args[argIndex-1].(type) {
-					case bool:
-						buffer.WriteString(fmt.Sprintf("%t", args[argIndex-1]))
-					case int:
-						buffer.WriteString(fmt.Sprintf("%d", args[argIndex-1]))
-					case float64, float32:
-						buffer.WriteString(fmt.Sprintf("%f", args[argIndex-1]))
-					default:
-						buffer.WriteString(fmt.Sprintf("%q", args[argIndex-1]))
-					}
+					buffer.WriteString(formatArg(args[argIndex-1]))
 					argIndex++
 					i = next - 1
 					continue
@@ -195,4 +187,41 @@ func replacePlaceholders(query string, args []interface{}) string {
 	}
 
 	return buffer.String()
+}
+
+func formatArg(arg interface{}) string {
+	var res string
+
+	val := reflect.ValueOf(arg)
+	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			res = "<nil>"
+		} else {
+			res = formatArg(val.Elem().Interface())
+		}
+
+		return res
+	}
+
+	switch v := arg.(type) {
+	case bool:
+		res = fmt.Sprintf("%t", v)
+	case int, uint, int8, uint8, int16, uint16, int32, uint32, int64, uint64:
+		res = fmt.Sprintf("%d", v)
+	case float64, float32:
+		res = fmt.Sprintf("%f", v)
+	case []uint8:
+		if len(v) == 0 {
+			res = "0x"
+		} else {
+			hexString := hex.EncodeToString(v)
+			res = fmt.Sprintf("'0x%s'", hexString)
+		}
+	case string:
+		res = fmt.Sprintf("%q", v)
+	default:
+		res = fmt.Sprintf("%v", v)
+	}
+
+	return res
 }
