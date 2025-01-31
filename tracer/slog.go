@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -166,7 +168,6 @@ func replacePlaceholders(query string, args []interface{}) string {
 			next := i + 1
 			numStart := next
 
-			// Find the end of the placeholder
 			for next < queryLen && query[next] >= '0' && query[next] <= '9' {
 				next++
 			}
@@ -175,16 +176,7 @@ func replacePlaceholders(query string, args []interface{}) string {
 			if numStart < next {
 				placeholderNum, err := strconv.Atoi(query[numStart:next])
 				if err == nil && placeholderNum == argIndex {
-					switch args[argIndex-1].(type) {
-					case bool:
-						buffer.WriteString(fmt.Sprintf("%t", args[argIndex-1]))
-					case int:
-						buffer.WriteString(fmt.Sprintf("%d", args[argIndex-1]))
-					case float64, float32:
-						buffer.WriteString(fmt.Sprintf("%f", args[argIndex-1]))
-					default:
-						buffer.WriteString(fmt.Sprintf("%q", args[argIndex-1]))
-					}
+					buffer.WriteString(formatArg(args[argIndex-1]))
 					argIndex++
 					i = next - 1
 					continue
@@ -195,4 +187,60 @@ func replacePlaceholders(query string, args []interface{}) string {
 	}
 
 	return buffer.String()
+}
+
+func formatArg(arg interface{}) string {
+	var res string
+
+	// Handle nil values
+	if arg == nil {
+		return "NULL"
+	}
+
+	val := reflect.ValueOf(arg)
+	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			res = "NULL"
+		} else {
+			res = formatArg(val.Elem().Interface())
+		}
+
+		return res
+	}
+
+	switch v := arg.(type) {
+	case bool:
+		res = fmt.Sprintf("%t", v)
+	case int, uint, int8, uint8, int16, uint16, int32, uint32, int64, uint64:
+		res = fmt.Sprintf("%d", v)
+	case float64, float32:
+		res = fmt.Sprintf("%f", v)
+	case []uint8:
+		if len(v) == 0 {
+			res = ""
+		} else {
+			hexString := hex.EncodeToString(v)
+			res = fmt.Sprintf("'\\x%s'", hexString)
+		}
+	case string:
+		res = fmt.Sprintf("'%s'", v)
+	case time.Time:
+		// Format to PostgreSQL-compatible timestamp
+		// (ISO 8601)
+		res = fmt.Sprintf("'%s'", v.UTC().Format("2006-01-02 15:04:05.000000"))
+	default:
+		argValue := reflect.ValueOf(arg)
+		argType := reflect.TypeOf(arg)
+
+		switch argType.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			res = fmt.Sprintf("%d", argValue.Int())
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			res = fmt.Sprintf("%d", argValue.Uint())
+		default:
+			res = fmt.Sprintf("%v", argValue)
+		}
+	}
+
+	return res
 }
