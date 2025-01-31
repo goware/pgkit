@@ -192,10 +192,15 @@ func replacePlaceholders(query string, args []interface{}) string {
 func formatArg(arg interface{}) string {
 	var res string
 
+	// Handle nil values
+	if arg == nil {
+		return "NULL"
+	}
+
 	val := reflect.ValueOf(arg)
 	if val.Kind() == reflect.Ptr {
 		if val.IsNil() {
-			res = "<nil>"
+			res = "NULL"
 		} else {
 			res = formatArg(val.Elem().Interface())
 		}
@@ -212,15 +217,29 @@ func formatArg(arg interface{}) string {
 		res = fmt.Sprintf("%f", v)
 	case []uint8:
 		if len(v) == 0 {
-			res = "0x"
+			res = ""
 		} else {
 			hexString := hex.EncodeToString(v)
-			res = fmt.Sprintf("'0x%s'", hexString)
+			res = fmt.Sprintf("'\\x%s'", hexString)
 		}
 	case string:
-		res = fmt.Sprintf("%q", v)
+		res = fmt.Sprintf("'%s'", v)
+	case time.Time:
+		// Format to PostgreSQL-compatible timestamp
+		// (ISO 8601)
+		res = fmt.Sprintf("'%s'", v.UTC().Format("2006-01-02 15:04:05.000000"))
 	default:
-		res = fmt.Sprintf("%v", v)
+		argValue := reflect.ValueOf(arg)
+		argType := reflect.TypeOf(arg)
+
+		switch argType.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			res = fmt.Sprintf("%d", argValue.Int())
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			res = fmt.Sprintf("%d", argValue.Uint())
+		default:
+			res = fmt.Sprintf("%v", argValue)
+		}
 	}
 
 	return res
