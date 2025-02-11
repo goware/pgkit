@@ -847,7 +847,7 @@ func TestSlogQueryTracerWithValuesReplaced(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	assert.Equal(t, "SELECT * FROM accounts WHERE name IN (\"user-1\",\"user-2\")", record.Query)
+	assert.Equal(t, "SELECT * FROM accounts WHERE name IN ('user-1','user-2')", record.Query)
 }
 
 func TestSlogQueryTracerWithCustomLoggingFunctions(t *testing.T) {
@@ -1094,11 +1094,11 @@ func TestSlogTracerBatchQuery(t *testing.T) {
 		},
 		{
 			Msg:   "query start",
-			Query: "INSERT INTO accounts (disabled,name) VALUES (false,\"user-0\")",
+			Query: "INSERT INTO accounts (disabled,name) VALUES (false,'user-0')",
 		},
 		{
 			Msg:   "query end",
-			Query: "INSERT INTO accounts (disabled,name) VALUES (false,\"user-0\")",
+			Query: "INSERT INTO accounts (disabled,name) VALUES (false,'user-0')",
 		},
 		{
 			Msg:   "query start",
