@@ -15,7 +15,7 @@ import (
 
 type Querier struct {
 	pool *pgxpool.Pool
-	tx   pgx.Tx
+	Tx   pgx.Tx
 	Scan *pgxscan.API
 	SQL  *StatementBuilder
 }
@@ -32,8 +32,8 @@ func (q *Querier) Exec(ctx context.Context, query Sqlizer) (pgconn.CommandTag, e
 	}
 
 	var tag pgconn.CommandTag
-	if q.tx != nil {
-		tag, err = q.tx.Exec(ctx, sql, args...)
+	if q.Tx != nil {
+		tag, err = q.Tx.Exec(ctx, sql, args...)
 	} else {
 		tag, err = q.pool.Exec(ctx, sql, args...)
 	}
@@ -56,8 +56,8 @@ func (q *Querier) QueryRows(ctx context.Context, query Sqlizer) (pgx.Rows, error
 	}
 
 	var rows pgx.Rows
-	if q.tx != nil {
-		rows, err = q.tx.Query(ctx, sql, args...)
+	if q.Tx != nil {
+		rows, err = q.Tx.Query(ctx, sql, args...)
 	} else {
 		rows, err = q.pool.Query(ctx, sql, args...)
 	}
@@ -79,8 +79,8 @@ func (q *Querier) QueryRow(ctx context.Context, query Sqlizer) pgx.Row {
 		return errRow{wrapErr(err)}
 	}
 
-	if q.tx != nil {
-		return q.tx.QueryRow(ctx, sql, args...)
+	if q.Tx != nil {
+		return q.Tx.QueryRow(ctx, sql, args...)
 	} else {
 		return q.pool.QueryRow(ctx, sql, args...)
 	}
@@ -133,8 +133,8 @@ func (q *Querier) BatchExec(ctx context.Context, queries Queries) ([]pgconn.Comm
 
 	// Send batch
 	var results pgx.BatchResults
-	if q.tx != nil {
-		results = q.tx.SendBatch(ctx, batch)
+	if q.Tx != nil {
+		results = q.Tx.SendBatch(ctx, batch)
 	} else {
 		results = q.pool.SendBatch(ctx, batch)
 	}
@@ -178,8 +178,8 @@ func (q *Querier) BatchQuery(ctx context.Context, queries Queries) (pgx.BatchRes
 
 	// Send batch
 	var batchResults pgx.BatchResults
-	if q.tx != nil {
-		batchResults = q.tx.SendBatch(ctx, batch)
+	if q.Tx != nil {
+		batchResults = q.Tx.SendBatch(ctx, batch)
 	} else {
 		batchResults = q.pool.SendBatch(ctx, batch)
 	}
