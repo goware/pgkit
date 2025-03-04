@@ -22,7 +22,7 @@ type DB struct {
 
 // TxQuery returns a new Querier that uses the given pgx.Tx
 func (d *DB) TxQuery(tx pgx.Tx) *Querier {
-	return &Querier{tx: tx, SQL: d.SQL, pool: d.Conn, Scan: d.Query.Scan}
+	return &Querier{Tx: tx, SQL: d.SQL, pool: d.Conn, Scan: d.Query.Scan}
 }
 
 // TxQueryFromContext returns a new Querier that uses the pgx.Tx in the given context
