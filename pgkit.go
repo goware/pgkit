@@ -20,6 +20,14 @@ type DB struct {
 	Query *Querier
 }
 
+func (d *DB) GetQuery(ctx context.Context) *Querier {
+	tx := TxFromContext(ctx)
+	if tx != nil {
+		return d.TxQuery(tx)
+	}
+	return d.Query
+}
+
 func (d *DB) TxQuery(tx pgx.Tx) *Querier {
 	return &Querier{tx: tx, SQL: d.SQL, pool: d.Conn, Scan: d.Query.Scan}
 }
