@@ -425,6 +425,33 @@ func TestRowsWithBigInt(t *testing.T) {
 	}
 }
 
+func TestSugarInsertRecordsMixedOmit(t *testing.T) {
+	truncateTable(t, "accounts")
+
+	records := []*Account{}
+	created := time.Now().Add(-time.Hour * 24 * 30)
+	records = append(records, &Account{Name: "michael", CreatedAt: created})
+	records = append(records, &Account{Name: "mary"})
+
+	// Insert
+	q1 := DB.SQL.InsertRecords(records) //, "accounts")
+	qs := make(pgkit.Queries, 0)
+	qs = append(qs, q1)
+	_, err := DB.Query.BatchExec(context.Background(), qs)
+	assert.NoError(t, err)
+
+	// Select all
+	var accounts []*Account
+	q2 := DB.SQL.Select("*").From("accounts").OrderBy("name")
+	err = DB.Query.GetAll(context.Background(), q2, &accounts)
+	assert.NoError(t, err)
+	assert.Len(t, accounts, 2)
+	assert.Equal(t, "mary", accounts[0].Name)
+	assert.Nil(t, accounts[0].CreatedAt)
+	assert.Equal(t, "michael", accounts[1].Name)
+	assert.Equal(t, created.Unix(), accounts[1].CreatedAt.Unix())
+}
+
 func TestSugarInsertAndSelectMultipleRecords(t *testing.T) {
 	truncateTable(t, "accounts")
 
