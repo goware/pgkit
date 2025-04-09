@@ -77,6 +77,7 @@ func Connect(appName string, cfg Config) (*DB, error) {
 		return nil, fmt.Errorf("pgkit: config invalid conn_max_idle_time value: %w", err)
 	}
 
+	poolCfg.MaxConnLifetimeJitter = time.Minute // Prevent connections from being closed at the same time.
 	poolCfg.HealthCheckPeriod = time.Minute
 
 	poolCfg.ConnConfig.Tracer = cfg.Tracer
