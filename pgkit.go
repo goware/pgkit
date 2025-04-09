@@ -41,7 +41,8 @@ type Config struct {
 	Password        string `toml:"password"`
 	MaxConns        int32  `toml:"max_conns"`
 	MinConns        int32  `toml:"min_conns"`
-	ConnMaxLifetime string `toml:"conn_max_lifetime"` // ie. "1800s" or "1h"
+	ConnMaxLifetime string `toml:"conn_max_lifetime"`  // ie. "3600s" or "1h"
+	ConnMaxIdleTime string `toml:"conn_max_idle_time"` // ie. "1800s" or "30m"
 
 	Override func(cfg *pgx.ConnConfig) `toml:"-"`
 	Tracer   pgx.QueryTracer
@@ -53,11 +54,14 @@ func Connect(appName string, cfg Config) (*DB, error) {
 		return nil, wrapErr(err)
 	}
 
-	if cfg.MaxConns == 0 {
+	if cfg.MaxConns <= 0 {
 		cfg.MaxConns = 4
 	}
 	if cfg.ConnMaxLifetime == "" {
 		cfg.ConnMaxLifetime = "1h"
+	}
+	if cfg.ConnMaxIdleTime == "" {
+		cfg.ConnMaxIdleTime = "30m"
 	}
 
 	poolCfg.MaxConns = cfg.MaxConns
@@ -68,8 +72,12 @@ func Connect(appName string, cfg Config) (*DB, error) {
 		return nil, fmt.Errorf("pgkit: config invalid conn_max_lifetime value: %w", err)
 	}
 
-	poolCfg.MaxConnIdleTime = time.Minute * 30
+	poolCfg.MaxConnIdleTime, err = time.ParseDuration(cfg.ConnMaxIdleTime)
+	if err != nil {
+		return nil, fmt.Errorf("pgkit: config invalid conn_max_idle_time value: %w", err)
+	}
 
+	poolCfg.MaxConnLifetimeJitter = time.Minute // Prevent connections from being closed at the same time.
 	poolCfg.HealthCheckPeriod = time.Minute
 
 	poolCfg.ConnConfig.Tracer = cfg.Tracer
