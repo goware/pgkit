@@ -113,32 +113,32 @@ func (t *Table[T, PT, ID]) GetAll(ctx context.Context, cond sq.Sqlizer, orderBy 
 }
 
 // GetByID returns a record by its ID.
-func (t *Table[T, PT, ID]) GetByID(ctx context.Context, id uint64) (PT, error) {
+func (t *Table[T, PT, ID]) GetByID(ctx context.Context, id ID) (PT, error) {
 	return t.GetOne(ctx, sq.Eq{t.IDColumn: id}, []string{t.IDColumn})
 }
 
 // GetByIDs returns records by their IDs.
-func (t *Table[T, PT, ID]) GetByIDs(ctx context.Context, ids []uint64) ([]PT, error) {
+func (t *Table[T, PT, ID]) GetByIDs(ctx context.Context, ids []ID) ([]PT, error) {
 	return t.GetAll(ctx, sq.Eq{t.IDColumn: ids}, nil)
 }
 
 // Count returns the number of matching records.
-func (t *Table[T, PT, ID]) Count(ctx context.Context, cond sq.Sqlizer) (uint64, error) {
-	var count uint64
+func (t *Table[T, PT, ID]) Count(ctx context.Context, cond sq.Sqlizer) (ID, error) {
+	var count ID
 	q := t.SQL.
 		Select("COUNT(1)").
 		From(t.Name).
 		Where(cond)
 
 	if err := t.Query.GetOne(ctx, q, &count); err != nil {
-		return 0, fmt.Errorf("get one: %w", err)
+		return count, fmt.Errorf("get one: %w", err)
 	}
 
 	return count, nil
 }
 
 // DeleteByID deletes a record by ID. Uses soft delete if deleted_at column exists.
-func (t *Table[T, PT, ID]) DeleteByID(ctx context.Context, id uint64) error {
+func (t *Table[T, PT, ID]) DeleteByID(ctx context.Context, id ID) error {
 	resource, err := t.GetByID(ctx, id)
 	if err != nil {
 		return err
@@ -155,7 +155,7 @@ func (t *Table[T, PT, ID]) DeleteByID(ctx context.Context, id uint64) error {
 }
 
 // HardDeleteByID permanently deletes a record by ID.
-func (t *Table[T, PT, ID]) HardDeleteByID(ctx context.Context, id uint64) error {
+func (t *Table[T, PT, ID]) HardDeleteByID(ctx context.Context, id ID) error {
 	_, err := t.SQL.Delete(t.Name).Where(sq.Eq{t.IDColumn: id}).Exec()
 	return err
 }
