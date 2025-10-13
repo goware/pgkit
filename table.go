@@ -171,3 +171,41 @@ func (t *Table[T, TP, ID]) WithTx(tx pgx.Tx) *Table[T, TP, ID] {
 		Name: t.Name,
 	}
 }
+
+// LockForUpdate locks 0..limit records using PostgreSQL's FOR UPDATE SKIP LOCKED pattern
+// for safe concurrent processing where each record is processed exactly once.
+// Complete updateFn() quickly to avoid holding the transaction. For long-running work:
+// update status to "processing" and return early, then process asynchronously.
+func (t *Table[T, TP, ID]) LockForUpdate(ctx context.Context, cond sq.Sqlizer, orderBy []string, limit uint64, updateFn func([]TP)) error {
+	return pgx.BeginFunc(ctx, t.DB.Conn, func(pgTx pgx.Tx) error {
+		if len(orderBy) == 0 {
+			orderBy = []string{t.IDColumn}
+		}
+
+		tx := t.WithTx(pgTx)
+
+		q := tx.SQL.
+			Select("*").
+			From(t.Name).
+			Where(cond).
+			OrderBy(orderBy...).
+			Limit(limit).
+			Suffix("FOR UPDATE SKIP LOCKED")
+
+		var records []TP
+		if err := tx.Query.GetAll(ctx, q, &records); err != nil {
+			return fmt.Errorf("select for update skip locked: %w", err)
+		}
+
+		updateFn(records)
+
+		for _, record := range records {
+			q := tx.SQL.UpdateRecord(record, sq.Eq{t.IDColumn: record.GetID()}, t.Name)
+			if _, err := tx.Query.Exec(ctx, q); err != nil {
+				return fmt.Errorf("update record: %w", err)
+			}
+		}
+
+		return nil
+	})
+}
