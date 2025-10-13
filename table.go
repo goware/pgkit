@@ -72,8 +72,6 @@ func (t *Table[T, PT, ID]) SaveAll(ctx context.Context, records []PT) error {
 
 // GetOne returns the first record matching the condition.
 func (t *Table[T, PT, ID]) GetOne(ctx context.Context, cond sq.Sqlizer, orderBy []string) (PT, error) {
-	cond = t.appendDeletedAtNULL(cond)
-
 	if len(orderBy) == 0 {
 		orderBy = []string{t.IDColumn}
 	}
@@ -100,8 +98,6 @@ func (t *Table[T, PT, ID]) GetAll(ctx context.Context, cond sq.Sqlizer, orderBy 
 		orderBy = []string{t.IDColumn}
 	}
 
-	cond = t.appendDeletedAtNULL(cond)
-
 	q := t.SQL.
 		Select("*").
 		From(t.Name).
@@ -118,18 +114,16 @@ func (t *Table[T, PT, ID]) GetAll(ctx context.Context, cond sq.Sqlizer, orderBy 
 
 // GetByID returns a record by its ID.
 func (t *Table[T, PT, ID]) GetByID(ctx context.Context, id uint64) (PT, error) {
-	return t.GetOne(ctx, t.appendDeletedAtNULL(sq.Eq{t.IDColumn: id}), []string{t.IDColumn})
+	return t.GetOne(ctx, sq.Eq{t.IDColumn: id}, []string{t.IDColumn})
 }
 
 // GetByIDs returns records by their IDs.
 func (t *Table[T, PT, ID]) GetByIDs(ctx context.Context, ids []uint64) ([]PT, error) {
-	return t.GetAll(ctx, t.appendDeletedAtNULL(sq.Eq{t.IDColumn: ids}), nil)
+	return t.GetAll(ctx, sq.Eq{t.IDColumn: ids}, nil)
 }
 
 // Count returns the number of matching records.
 func (t *Table[T, PT, ID]) Count(ctx context.Context, cond sq.Sqlizer) (uint64, error) {
-	cond = t.appendDeletedAtNULL(cond)
-
 	var count uint64
 	q := t.SQL.
 		Select("COUNT(1)").
@@ -164,23 +158,6 @@ func (t *Table[T, PT, ID]) DeleteByID(ctx context.Context, id uint64) error {
 func (t *Table[T, PT, ID]) HardDeleteByID(ctx context.Context, id uint64) error {
 	_, err := t.SQL.Delete(t.Name).Where(sq.Eq{t.IDColumn: id}).Exec()
 	return err
-}
-
-func (t *Table[T, PT, ID]) appendDeletedAtNULL(cond sq.Sqlizer) sq.Sqlizer {
-	var zero PT
-	if _, ok := any(zero).(hasDeletedAt); ok {
-		condDeletedAt := sq.Eq{"deleted_at": nil}
-		if cond == nil {
-			cond = condDeletedAt
-		} else {
-			cond = sq.And{
-				cond,
-				condDeletedAt,
-			}
-		}
-	}
-
-	return cond
 }
 
 // WithTx returns a table instance bound to the given transaction.
