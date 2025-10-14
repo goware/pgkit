@@ -196,9 +196,13 @@ func TestLockForUpdate(t *testing.T) {
 			wg.Go(func() {
 
 				err := db.Reviews.LockForUpdate(ctx, cond, orderBy, 10, func(reviews []*Review) {
-					for _, review := range reviews {
+					now := time.Now().UTC()
+					for i, review := range reviews {
 						review.Status = ReviewStatusProcessing
+						review.ProcessedAt = &now
 						go processReviewAsynchronously(ctx, db, review)
+
+						uniqueIDs[i] = append(uniqueIDs[i], review.ID)
 					}
 				})
 				require.NoError(t, err, "lock for update")
