@@ -193,7 +193,9 @@ func TestLockForUpdate(t *testing.T) {
 		var wg sync.WaitGroup
 
 		for range 10 {
-			wg.Go(func() {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 
 				err := db.Reviews.LockForUpdate(ctx, cond, orderBy, 10, func(reviews []*Review) {
 					now := time.Now().UTC()
@@ -207,7 +209,7 @@ func TestLockForUpdate(t *testing.T) {
 				})
 				require.NoError(t, err, "lock for update")
 
-			})
+			}()
 		}
 		wg.Wait()
 
