@@ -57,15 +57,16 @@ type Content struct {
 }
 
 type Review struct {
-	ID        uint64       `db:"id,omitempty"`
-	Comment   string       `db:"comment"`
-	Status    ReviewStatus `db:"status"`
-	Sentiment int64        `db:"sentiment"`
-	AccountID int64        `db:"account_id"`
-	ArticleID uint64       `db:"article_id"`
-	CreatedAt time.Time    `db:"created_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
-	UpdatedAt time.Time    `db:"created_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
-	DeletedAt *time.Time   `db:"deleted_at"`
+	ID          uint64       `db:"id,omitempty"`
+	Comment     string       `db:"comment"`
+	Status      ReviewStatus `db:"status"`
+	Sentiment   int64        `db:"sentiment"`
+	AccountID   int64        `db:"account_id"`
+	ArticleID   uint64       `db:"article_id"`
+	ProcessedAt *time.Time   `db:"processed_at"`
+	CreatedAt   time.Time    `db:"created_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
+	UpdatedAt   time.Time    `db:"created_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
+	DeletedAt   *time.Time   `db:"deleted_at"`
 }
 
 func (r *Review) GetID() uint64            { return r.ID }
