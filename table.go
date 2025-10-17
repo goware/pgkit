@@ -175,56 +175,65 @@ func (t *Table[T, PT, IDT]) WithTx(tx pgx.Tx) *Table[T, PT, IDT] {
 
 // LockForUpdate locks and processes records using PostgreSQL's FOR UPDATE SKIP LOCKED pattern
 // for safe concurrent processing. Each record is processed exactly once across multiple workers.
-// Records are automatically updated after updateFn() completes. Complete updateFn() quickly to avoid
+// Records are automatically updated after updateFn() completes. Keep updateFn() fast to avoid
 // holding the transaction. For long-running work, update status to "processing" and return early,
-// then process asynchronously and update status to "completed" or "failed" when done.
-func (t *Table[T, PT, IDT]) LockForUpdate(ctx context.Context, cond sq.Sqlizer, orderBy []string, limit uint64, updateFn func(pgTx pgx.Tx, records []PT)) error {
+// then process asynchronously. Use defer LockOneForUpdate() to update status to "completed" or "failed".
+func (t *Table[T, PT, IDT]) LockForUpdate(ctx context.Context, cond sq.Sqlizer, orderBy []string, limit uint64, updateFn func(records []PT)) error {
+	// Check if we're already in a transaction
+	if t.DB.Query.Tx != nil {
+		return t.lockForUpdateWithTx(ctx, t.DB.Query.Tx, cond, orderBy, limit, updateFn)
+	}
+
 	return pgx.BeginFunc(ctx, t.DB.Conn, func(pgTx pgx.Tx) error {
-		if len(orderBy) == 0 {
-			orderBy = []string{t.IDColumn}
-		}
-
-		tx := t.WithTx(pgTx)
-
-		q := tx.SQL.
-			Select("*").
-			From(t.Name).
-			Where(cond).
-			OrderBy(orderBy...).
-			Limit(limit).
-			Suffix("FOR UPDATE SKIP LOCKED")
-
-		var records []PT
-		if err := tx.Query.GetAll(ctx, q, &records); err != nil {
-			return fmt.Errorf("select for update skip locked: %w", err)
-		}
-
-		updateFn(pgTx, records)
-
-		for _, record := range records {
-			q := tx.SQL.UpdateRecord(record, sq.Eq{t.IDColumn: record.GetID()}, t.Name)
-			if _, err := tx.Query.Exec(ctx, q); err != nil {
-				return fmt.Errorf("update record: %w", err)
-			}
-		}
-
-		return nil
+		return t.lockForUpdateWithTx(ctx, pgTx, cond, orderBy, limit, updateFn)
 	})
+}
+
+func (t *Table[T, PT, IDT]) lockForUpdateWithTx(ctx context.Context, pgTx pgx.Tx, cond sq.Sqlizer, orderBy []string, limit uint64, updateFn func(records []PT)) error {
+	if len(orderBy) == 0 {
+		orderBy = []string{t.IDColumn}
+	}
+
+	q := t.SQL.
+		Select("*").
+		From(t.Name).
+		Where(cond).
+		OrderBy(orderBy...).
+		Limit(limit).
+		Suffix("FOR UPDATE SKIP LOCKED")
+
+	txQuery := t.DB.TxQuery(pgTx)
+
+	var records []PT
+	if err := txQuery.GetAll(ctx, q, &records); err != nil {
+		return fmt.Errorf("select for update skip locked: %w", err)
+	}
+
+	updateFn(records)
+
+	for _, record := range records {
+		q := t.SQL.UpdateRecord(record, sq.Eq{t.IDColumn: record.GetID()}, t.Name)
+		if _, err := txQuery.Exec(ctx, q); err != nil {
+			return fmt.Errorf("update record: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // LockOneForUpdate locks and processes one record using PostgreSQL's FOR UPDATE SKIP LOCKED pattern
 // for safe concurrent processing. The record is processed exactly once across multiple workers.
-// Records are automatically updated after updateFn() completes. Complete updateFn() quickly to avoid
+// The record is automatically updated after updateFn() completes. Keep updateFn() fast to avoid
 // holding the transaction. For long-running work, update status to "processing" and return early,
-// then process asynchronously and update status to "completed" or "failed" when done.
+// then process asynchronously. Use defer LockOneForUpdate() to update status to "completed" or "failed".
 //
-// Returns ErrNoRows if no records match the condition.
-func (t *Table[T, PT, IDT]) LockOneForUpdate(ctx context.Context, cond sq.Sqlizer, orderBy []string, updateFn func(pgTx pgx.Tx, record PT)) error {
+// Returns ErrNoRows if no matching records are available for locking.
+func (t *Table[T, PT, IDT]) LockOneForUpdate(ctx context.Context, cond sq.Sqlizer, orderBy []string, updateFn func(record PT)) error {
 	var noRows bool
 
-	err := t.LockForUpdate(ctx, cond, orderBy, 1, func(pgTx pgx.Tx, records []PT) {
+	err := t.LockForUpdate(ctx, cond, orderBy, 1, func(records []PT) {
 		if len(records) > 0 {
-			updateFn(pgTx, records[0])
+			updateFn(records[0])
 		} else {
 			noRows = true
 		}

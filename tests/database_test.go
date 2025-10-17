@@ -26,12 +26,12 @@ func initDB(db *pgkit.DB) *Database {
 
 func (db *Database) BeginTx(ctx context.Context, fn func(tx *Database) error) error {
 	return pgx.BeginFunc(ctx, db.Conn, func(pgTx pgx.Tx) error {
-		tx := db.WithTxQuery(pgTx)
+		tx := db.WithTx(pgTx)
 		return fn(tx)
 	})
 }
 
-func (db *Database) WithTxQuery(tx pgx.Tx) *Database {
+func (db *Database) WithTx(tx pgx.Tx) *Database {
 	pgkitDB := &pgkit.DB{
 		Conn:  db.Conn,
 		SQL:   db.SQL,
