@@ -173,11 +173,12 @@ func (t *Table[T, PT, IDT]) WithTx(tx pgx.Tx) *Table[T, PT, IDT] {
 	}
 }
 
-// LockForUpdate locks 0..limit records using PostgreSQL's FOR UPDATE SKIP LOCKED pattern
-// for safe concurrent processing where each record is processed exactly once.
-// Complete updateFn() quickly to avoid holding the transaction. For long-running work:
-// update status to "processing" and return early, then process asynchronously.
-func (t *Table[T, PT, IDT]) LockForUpdate(ctx context.Context, cond sq.Sqlizer, orderBy []string, limit uint64, updateFn func([]PT)) error {
+// LockForUpdate locks and processes records using PostgreSQL's FOR UPDATE SKIP LOCKED pattern
+// for safe concurrent processing. Each record is processed exactly once across multiple workers.
+// Records are automatically updated after updateFn() completes. Complete updateFn() quickly to avoid
+// holding the transaction. For long-running work, update status to "processing" and return early,
+// then process asynchronously and update status to "completed" or "failed" when done.
+func (t *Table[T, PT, IDT]) LockForUpdate(ctx context.Context, cond sq.Sqlizer, orderBy []string, limit uint64, updateFn func(pgTx pgx.Tx, records []PT)) error {
 	return pgx.BeginFunc(ctx, t.DB.Conn, func(pgTx pgx.Tx) error {
 		if len(orderBy) == 0 {
 			orderBy = []string{t.IDColumn}
@@ -198,7 +199,7 @@ func (t *Table[T, PT, IDT]) LockForUpdate(ctx context.Context, cond sq.Sqlizer, 
 			return fmt.Errorf("select for update skip locked: %w", err)
 		}
 
-		updateFn(records)
+		updateFn(pgTx, records)
 
 		for _, record := range records {
 			q := tx.SQL.UpdateRecord(record, sq.Eq{t.IDColumn: record.GetID()}, t.Name)
@@ -209,4 +210,32 @@ func (t *Table[T, PT, IDT]) LockForUpdate(ctx context.Context, cond sq.Sqlizer, 
 
 		return nil
 	})
+}
+
+// LockOneForUpdate locks and processes one record using PostgreSQL's FOR UPDATE SKIP LOCKED pattern
+// for safe concurrent processing. The record is processed exactly once across multiple workers.
+// Records are automatically updated after updateFn() completes. Complete updateFn() quickly to avoid
+// holding the transaction. For long-running work, update status to "processing" and return early,
+// then process asynchronously and update status to "completed" or "failed" when done.
+//
+// Returns ErrNoRows if no records match the condition.
+func (t *Table[T, PT, IDT]) LockOneForUpdate(ctx context.Context, cond sq.Sqlizer, orderBy []string, updateFn func(pgTx pgx.Tx, record PT)) error {
+	var noRows bool
+
+	err := t.LockForUpdate(ctx, cond, orderBy, 1, func(pgTx pgx.Tx, records []PT) {
+		if len(records) > 0 {
+			updateFn(pgTx, records[0])
+		} else {
+			noRows = true
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("lock for update one: %w", err)
+	}
+
+	if noRows {
+		return ErrNoRows
+	}
+
+	return nil
 }
