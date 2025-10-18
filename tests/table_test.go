@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"slices"
 	"sync"
 	"testing"
@@ -154,15 +155,15 @@ func TestTable(t *testing.T) {
 	})
 }
 
-func TestLockForUpdate(t *testing.T) {
+func TestLockForUpdates(t *testing.T) {
 	truncateAllTables(t)
 
 	ctx := t.Context()
 	db := initDB(DB)
 
-	t.Run("TestLockForUpdate", func(t *testing.T) {
+	t.Run("TestLockForUpdates", func(t *testing.T) {
 		// Create account.
-		account := &Account{Name: "LockForUpdate Account"}
+		account := &Account{Name: "LockForUpdates Account"}
 		err := db.Accounts.Save(ctx, account)
 		require.NoError(t, err, "Create account failed")
 
@@ -193,7 +194,7 @@ func TestLockForUpdate(t *testing.T) {
 		}
 		limit := uint64(10)
 
-		var uniqueIDs [][]uint64 = make([][]uint64, 10)
+		var processedIDs [][]uint64 = make([][]uint64, 10)
 		var wg sync.WaitGroup
 
 		for range 10 {
@@ -201,36 +202,81 @@ func TestLockForUpdate(t *testing.T) {
 			go func() {
 				defer wg.Done()
 
+				var processReviews []*Review
+
 				err := db.Reviews.LockForUpdates(ctx, where, orderBy, limit, func(reviews []*Review) {
 					now := time.Now().UTC()
-					for i, review := range reviews {
+					for _, review := range reviews {
 						review.Status = ReviewStatusProcessing
 						review.ProcessedAt = &now
-						go processReviewAsynchronously(ctx, db, review)
-
-						uniqueIDs[i] = append(uniqueIDs[i], review.ID)
 					}
+
+					processReviews = reviews
 				})
 				require.NoError(t, err, "lock for update")
 
+				for _, review := range processReviews {
+					go processReviewAsynchronously(ctx, db, review)
+				}
+
+				for i, review := range processReviews {
+					processedIDs[i] = append(processedIDs[i], review.ID)
+				}
 			}()
 		}
 		wg.Wait()
 
-		ids := slices.Concat(uniqueIDs...)
-		slices.Sort(ids)
-		ids = slices.Compact(ids)
+		// Ensure that all reviews were picked up for processing exactly once.
+		uniqueIDs := slices.Concat(processedIDs...)
+		slices.Sort(uniqueIDs)
+		uniqueIDs = slices.Compact(uniqueIDs)
+		require.Equal(t, 100, len(uniqueIDs), "number of unique reviews picked up for processing should be 100")
 
-		require.Equal(t, 100, len(ids), "number of processed unique reviews should be 100")
+		// Wait for all reviews to be processed asynchronously.
+		time.Sleep(2 * time.Second)
+
+		// Double check there's no reviews stuck in "processing" status.
+		count, err := db.Reviews.Count(ctx, sq.Eq{"status": ReviewStatusProcessing})
+		require.NoError(t, err, "count reviews")
+		require.Zero(t, count, "there should be no reviews stuck in 'processing' status")
 	})
 }
 
-// TODO: defer() save status (success/failure) or put back to queue for processing.
-func processReviewAsynchronously(ctx context.Context, db *Database, review *Review) {
-	time.Sleep(1 * time.Second)
-	review.Status = ReviewStatusApproved
-	err := db.Reviews.Save(ctx, review)
-	if err != nil {
-		log.Printf("failed to save review: %v", err)
+func processReviewAsynchronously(ctx context.Context, db *Database, review *Review) (err error) {
+	defer func() {
+		// Always update status to "approved", "rejected" or "failed".
+		noCtx := context.Background()
+		err = db.Reviews.LockForUpdate(noCtx, sq.Eq{"id": review.ID}, []string{"id DESC"}, func(update *Review) {
+			now := time.Now().UTC()
+			update.ProcessedAt = &now
+			if err != nil {
+				update.Status = ReviewStatusFailed
+				return
+			}
+			update.Status = review.Status
+		})
+		if err != nil {
+			log.Printf("failed to save review: %v", err)
+		}
+	}()
+
+	// Simulate long-running work.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(1 * time.Second):
 	}
+
+	// Simulate external API call to an LLM.
+	if rand.Intn(2) == 0 {
+		return fmt.Errorf("failed to process review: <some underlying error>")
+	}
+
+	review.Status = ReviewStatusApproved
+	if rand.Intn(2) == 0 {
+		review.Status = ReviewStatusRejected
+	}
+	now := time.Now().UTC()
+	review.ProcessedAt = &now
+	return nil
 }
