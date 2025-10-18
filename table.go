@@ -29,8 +29,14 @@ type hasSetDeletedAt interface {
 	SetDeletedAt(time.Time)
 }
 
-// Save inserts or updates a record. Auto-detects insert vs update by ID.
-func (t *Table[T, PT, IDT]) Save(ctx context.Context, record PT) error {
+// Save inserts or updates given records. Auto-detects insert vs update by ID.
+func (t *Table[T, PT, IDT]) Save(ctx context.Context, records ...PT) error {
+	if len(records) != 1 {
+		return t.saveAll(ctx, records)
+	}
+
+	record := records[0]
+
 	if err := record.Validate(); err != nil {
 		return err //nolint:wrapcheck
 	}
@@ -59,8 +65,9 @@ func (t *Table[T, PT, IDT]) Save(ctx context.Context, record PT) error {
 	return nil
 }
 
-// SaveAll saves multiple records sequentially.
-func (t *Table[T, PT, IDT]) SaveAll(ctx context.Context, records []PT) error {
+// saveAll saves multiple records sequentially.
+// TODO: This can be likely optimized to use a batch insert.
+func (t *Table[T, PT, IDT]) saveAll(ctx context.Context, records []PT) error {
 	for i := range records {
 		if err := t.Save(ctx, records[i]); err != nil {
 			return err
@@ -70,30 +77,30 @@ func (t *Table[T, PT, IDT]) SaveAll(ctx context.Context, records []PT) error {
 	return nil
 }
 
-// GetOne returns the first record matching the condition.
-func (t *Table[T, PT, IDT]) GetOne(ctx context.Context, cond sq.Sqlizer, orderBy []string) (PT, error) {
+// Get returns the first record matching the condition.
+func (t *Table[T, PT, IDT]) Get(ctx context.Context, where sq.Sqlizer, orderBy []string) (PT, error) {
 	if len(orderBy) == 0 {
 		orderBy = []string{t.IDColumn}
 	}
 
-	dest := new(T)
+	record := new(T)
 
 	q := t.SQL.
 		Select("*").
 		From(t.Name).
-		Where(cond).
+		Where(where).
 		Limit(1).
 		OrderBy(orderBy...)
 
-	if err := t.Query.GetOne(ctx, q, dest); err != nil {
+	if err := t.Query.GetOne(ctx, q, record); err != nil {
 		return nil, err
 	}
 
-	return dest, nil
+	return record, nil
 }
 
-// GetAll returns all records matching the condition.
-func (t *Table[T, PT, IDT]) GetAll(ctx context.Context, cond sq.Sqlizer, orderBy []string) ([]PT, error) {
+// List returns all records matching the condition.
+func (t *Table[T, PT, IDT]) List(ctx context.Context, where sq.Sqlizer, orderBy []string) ([]PT, error) {
 	if len(orderBy) == 0 {
 		orderBy = []string{t.IDColumn}
 	}
@@ -101,34 +108,34 @@ func (t *Table[T, PT, IDT]) GetAll(ctx context.Context, cond sq.Sqlizer, orderBy
 	q := t.SQL.
 		Select("*").
 		From(t.Name).
-		Where(cond).
+		Where(where).
 		OrderBy(orderBy...)
 
-	var dest []PT
-	if err := t.Query.GetAll(ctx, q, &dest); err != nil {
+	var records []PT
+	if err := t.Query.GetAll(ctx, q, &records); err != nil {
 		return nil, err
 	}
 
-	return dest, nil
+	return records, nil
 }
 
 // GetByID returns a record by its ID.
 func (t *Table[T, PT, IDT]) GetByID(ctx context.Context, id IDT) (PT, error) {
-	return t.GetOne(ctx, sq.Eq{t.IDColumn: id}, []string{t.IDColumn})
+	return t.Get(ctx, sq.Eq{t.IDColumn: id}, []string{t.IDColumn})
 }
 
 // GetByIDs returns records by their IDs.
 func (t *Table[T, PT, IDT]) GetByIDs(ctx context.Context, ids []IDT) ([]PT, error) {
-	return t.GetAll(ctx, sq.Eq{t.IDColumn: ids}, nil)
+	return t.List(ctx, sq.Eq{t.IDColumn: ids}, nil)
 }
 
 // Count returns the number of matching records.
-func (t *Table[T, PT, IDT]) Count(ctx context.Context, cond sq.Sqlizer) (uint64, error) {
+func (t *Table[T, PT, IDT]) Count(ctx context.Context, where sq.Sqlizer) (uint64, error) {
 	var count uint64
 	q := t.SQL.
 		Select("COUNT(1)").
 		From(t.Name).
-		Where(cond)
+		Where(where)
 
 	if err := t.Query.GetOne(ctx, q, &count); err != nil {
 		return count, fmt.Errorf("get one: %w", err)
@@ -173,23 +180,23 @@ func (t *Table[T, PT, IDT]) WithTx(tx pgx.Tx) *Table[T, PT, IDT] {
 	}
 }
 
-// LockForUpdate locks and processes records using PostgreSQL's FOR UPDATE SKIP LOCKED pattern
+// LockForUpdates locks and processes records using PostgreSQL's FOR UPDATE SKIP LOCKED pattern
 // for safe concurrent processing. Each record is processed exactly once across multiple workers.
 // Records are automatically updated after updateFn() completes. Keep updateFn() fast to avoid
 // holding the transaction. For long-running work, update status to "processing" and return early,
 // then process asynchronously. Use defer LockOneForUpdate() to update status to "completed" or "failed".
-func (t *Table[T, PT, IDT]) LockForUpdate(ctx context.Context, cond sq.Sqlizer, orderBy []string, limit uint64, updateFn func(records []PT)) error {
+func (t *Table[T, PT, IDT]) LockForUpdates(ctx context.Context, where sq.Sqlizer, orderBy []string, limit uint64, updateFn func(records []PT)) error {
 	// Check if we're already in a transaction
 	if t.DB.Query.Tx != nil {
-		return t.lockForUpdateWithTx(ctx, t.DB.Query.Tx, cond, orderBy, limit, updateFn)
+		return t.lockForUpdatesWithTx(ctx, t.DB.Query.Tx, where, orderBy, limit, updateFn)
 	}
 
 	return pgx.BeginFunc(ctx, t.DB.Conn, func(pgTx pgx.Tx) error {
-		return t.lockForUpdateWithTx(ctx, pgTx, cond, orderBy, limit, updateFn)
+		return t.lockForUpdatesWithTx(ctx, pgTx, where, orderBy, limit, updateFn)
 	})
 }
 
-func (t *Table[T, PT, IDT]) lockForUpdateWithTx(ctx context.Context, pgTx pgx.Tx, cond sq.Sqlizer, orderBy []string, limit uint64, updateFn func(records []PT)) error {
+func (t *Table[T, PT, IDT]) lockForUpdatesWithTx(ctx context.Context, pgTx pgx.Tx, where sq.Sqlizer, orderBy []string, limit uint64, updateFn func(records []PT)) error {
 	if len(orderBy) == 0 {
 		orderBy = []string{t.IDColumn}
 	}
@@ -197,7 +204,7 @@ func (t *Table[T, PT, IDT]) lockForUpdateWithTx(ctx context.Context, pgTx pgx.Tx
 	q := t.SQL.
 		Select("*").
 		From(t.Name).
-		Where(cond).
+		Where(where).
 		OrderBy(orderBy...).
 		Limit(limit).
 		Suffix("FOR UPDATE SKIP LOCKED")
@@ -221,17 +228,17 @@ func (t *Table[T, PT, IDT]) lockForUpdateWithTx(ctx context.Context, pgTx pgx.Tx
 	return nil
 }
 
-// LockOneForUpdate locks and processes one record using PostgreSQL's FOR UPDATE SKIP LOCKED pattern
+// LockForUpdate locks and processes one record using PostgreSQL's FOR UPDATE SKIP LOCKED pattern
 // for safe concurrent processing. The record is processed exactly once across multiple workers.
 // The record is automatically updated after updateFn() completes. Keep updateFn() fast to avoid
 // holding the transaction. For long-running work, update status to "processing" and return early,
-// then process asynchronously. Use defer LockOneForUpdate() to update status to "completed" or "failed".
+// then process asynchronously. Use defer LockForUpdate() to update status to "completed" or "failed".
 //
 // Returns ErrNoRows if no matching records are available for locking.
-func (t *Table[T, PT, IDT]) LockOneForUpdate(ctx context.Context, cond sq.Sqlizer, orderBy []string, updateFn func(record PT)) error {
+func (t *Table[T, PT, IDT]) LockForUpdate(ctx context.Context, where sq.Sqlizer, orderBy []string, updateFn func(record PT)) error {
 	var noRows bool
 
-	err := t.LockForUpdate(ctx, cond, orderBy, 1, func(records []PT) {
+	err := t.LockForUpdates(ctx, where, orderBy, 1, func(records []PT) {
 		if len(records) > 0 {
 			updateFn(records[0])
 		} else {
