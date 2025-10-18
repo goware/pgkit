@@ -3,6 +3,7 @@ package pgkit_test
 import (
 	"context"
 	"fmt"
+	"log"
 	"slices"
 	"sync"
 	"testing"
@@ -75,8 +76,8 @@ func TestTable(t *testing.T) {
 			}
 
 			// Save articles (3x insert).
-			err = tx.Articles.SaveAll(ctx, articles)
-			require.NoError(t, err, "SaveAll failed")
+			err = tx.Articles.Save(ctx, articles...)
+			require.NoError(t, err, "Save failed")
 
 			for _, article := range articles {
 				require.NotZero(t, article.ID, "ID should be set")
@@ -88,8 +89,8 @@ func TestTable(t *testing.T) {
 
 			// Save articles (3x update, 1x insert).
 			articles = append(articles, &Article{Author: "Fourth", AccountID: account.ID})
-			err = tx.Articles.SaveAll(ctx, articles)
-			require.NoError(t, err, "SaveAll failed")
+			err = tx.Articles.Save(ctx, articles...)
+			require.NoError(t, err, "Save failed")
 
 			for _, article := range articles {
 				require.NotZero(t, article.ID, "ID should be set")
@@ -107,7 +108,7 @@ func TestTable(t *testing.T) {
 				require.Equal(t, article.AccountID, articleCheck.AccountID, "Article AccountID should match")
 				require.Equal(t, article.CreatedAt, articleCheck.CreatedAt, "Article CreatedAt should match")
 				//require.Equal(t, article.UpdatedAt, articleCheck.UpdatedAt, "Article UpdatedAt should match")
-				//require.NotEqual(t, article.UpdatedAt, articleCheck.UpdatedAt, "Article UpdatedAt shouldn't match") // The .SaveAll() aboe updates the timestamp.
+				//require.NotEqual(t, article.UpdatedAt, articleCheck.UpdatedAt, "Article UpdatedAt shouldn't match") // The .Save() aboe updates the timestamp.
 				require.Equal(t, article.DeletedAt, articleCheck.DeletedAt, "Article DeletedAt should match")
 			}
 
@@ -180,14 +181,17 @@ func TestLockForUpdate(t *testing.T) {
 				Status:    ReviewStatusPending,
 			}
 		}
-		err = db.Reviews.SaveAll(ctx, reviews)
+		err = db.Reviews.Save(ctx, reviews...)
 		require.NoError(t, err, "create review")
 
-		cond := sq.Eq{
+		where := sq.Eq{
 			"status":     ReviewStatusPending,
 			"deleted_at": nil,
 		}
-		orderBy := []string{"created_at ASC"}
+		orderBy := []string{
+			"created_at ASC",
+		}
+		limit := uint64(10)
 
 		var uniqueIDs [][]uint64 = make([][]uint64, 10)
 		var wg sync.WaitGroup
@@ -197,7 +201,7 @@ func TestLockForUpdate(t *testing.T) {
 			go func() {
 				defer wg.Done()
 
-				err := db.Reviews.LockForUpdate(ctx, cond, orderBy, 10, func(reviews []*Review) {
+				err := db.Reviews.LockForUpdates(ctx, where, orderBy, limit, func(reviews []*Review) {
 					now := time.Now().UTC()
 					for i, review := range reviews {
 						review.Status = ReviewStatusProcessing
@@ -225,5 +229,8 @@ func TestLockForUpdate(t *testing.T) {
 func processReviewAsynchronously(ctx context.Context, db *Database, review *Review) {
 	time.Sleep(1 * time.Second)
 	review.Status = ReviewStatusApproved
-	db.Reviews.Save(ctx, review)
+	err := db.Reviews.Save(ctx, review)
+	if err != nil {
+		log.Printf("failed to save review: %v", err)
+	}
 }
