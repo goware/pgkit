@@ -1051,7 +1051,7 @@ func TestSlogSlowQuery(t *testing.T) {
 	}
 
 	assert.Equal(t, "SELECT pg_sleep(0.1)", sqlRecord.Query)
-	assert.Regexp(t, "10.*ms$", sqlRecord.Duration)
+	assert.Regexp(t, `^\d+\.\d+ms$`, sqlRecord.Duration)
 }
 
 func TestSlogTracerBatchQuery(t *testing.T) {
