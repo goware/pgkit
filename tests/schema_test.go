@@ -88,6 +88,7 @@ const (
 	ReviewStatusProcessing
 	ReviewStatusApproved
 	ReviewStatusRejected
+	ReviewStatusFailed
 )
 
 type Log struct {
