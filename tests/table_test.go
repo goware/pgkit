@@ -5,7 +5,6 @@ import (
 	"slices"
 	"sync"
 	"testing"
-	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/stretchr/testify/require"
@@ -183,16 +182,7 @@ func TestLockForUpdates(t *testing.T) {
 		err = db.Reviews.Save(ctx, reviews...)
 		require.NoError(t, err, "create review")
 
-		where := sq.Eq{
-			"status":     ReviewStatusPending,
-			"deleted_at": nil,
-		}
-		orderBy := []string{
-			"created_at ASC",
-		}
-		limit := uint64(10)
-
-		var processedIDs [][]uint64 = make([][]uint64, 10)
+		var ids [][]uint64 = make([][]uint64, 10)
 		var wg sync.WaitGroup
 
 		for range 10 {
@@ -200,32 +190,20 @@ func TestLockForUpdates(t *testing.T) {
 			go func() {
 				defer wg.Done()
 
-				var processReviews []*Review
+				reviews, err := db.Reviews.DequeueForProcessing(ctx, 10)
+				require.NoError(t, err, "dequeue reviews")
 
-				err := db.Reviews.LockForUpdates(ctx, where, orderBy, limit, func(reviews []*Review) {
-					now := time.Now().UTC()
-					for _, review := range reviews {
-						review.Status = ReviewStatusProcessing
-						review.ProcessedAt = &now
-					}
-
-					processReviews = reviews
-				})
-				require.NoError(t, err, "lock for update")
-
-				for _, review := range processReviews {
+				for i, review := range reviews {
 					go worker.ProcessReview(ctx, review)
-				}
 
-				for i, review := range processReviews {
-					processedIDs[i] = append(processedIDs[i], review.ID)
+					ids[i] = append(ids[i], review.ID)
 				}
 			}()
 		}
 		wg.Wait()
 
 		// Ensure that all reviews were picked up for processing exactly once.
-		uniqueIDs := slices.Concat(processedIDs...)
+		uniqueIDs := slices.Concat(ids...)
 		slices.Sort(uniqueIDs)
 		uniqueIDs = slices.Compact(uniqueIDs)
 		require.Equal(t, 100, len(uniqueIDs), "number of unique reviews picked up for processing should be 100")
