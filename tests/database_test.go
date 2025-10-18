@@ -41,16 +41,6 @@ func (db *Database) WithTx(tx pgx.Tx) *Database {
 	return initDB(pgkitDB)
 }
 
-func (db *Database) Close() { db.DB.Conn.Close() }
-
-type accountsTable struct {
-	*pgkit.Table[Account, *Account, int64]
-}
-
-type articlesTable struct {
-	*pgkit.Table[Article, *Article, uint64]
-}
-
-type reviewsTable struct {
-	*pgkit.Table[Review, *Review, uint64]
+func (db *Database) Close() {
+	db.DB.Conn.Close()
 }
