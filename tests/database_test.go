@@ -41,6 +41,8 @@ func (db *Database) WithTx(tx pgx.Tx) *Database {
 	return initDB(pgkitDB)
 }
 
+func (db *Database) Close() { db.DB.Conn.Close() }
+
 type accountsTable struct {
 	*pgkit.Table[Account, *Account, int64]
 }

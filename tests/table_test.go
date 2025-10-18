@@ -1,10 +1,7 @@
 package pgkit_test
 
 import (
-	"context"
 	"fmt"
-	"log"
-	"math/rand"
 	"slices"
 	"sync"
 	"testing"
@@ -160,6 +157,7 @@ func TestLockForUpdates(t *testing.T) {
 
 	ctx := t.Context()
 	db := initDB(DB)
+	worker := &Worker{DB: db}
 
 	t.Run("TestLockForUpdates", func(t *testing.T) {
 		// Create account.
@@ -216,7 +214,7 @@ func TestLockForUpdates(t *testing.T) {
 				require.NoError(t, err, "lock for update")
 
 				for _, review := range processReviews {
-					go processReviewAsynchronously(ctx, db, review)
+					go worker.ProcessReview(ctx, review)
 				}
 
 				for i, review := range processReviews {
@@ -233,50 +231,11 @@ func TestLockForUpdates(t *testing.T) {
 		require.Equal(t, 100, len(uniqueIDs), "number of unique reviews picked up for processing should be 100")
 
 		// Wait for all reviews to be processed asynchronously.
-		time.Sleep(2 * time.Second)
+		worker.Wait()
 
 		// Double check there's no reviews stuck in "processing" status.
 		count, err := db.Reviews.Count(ctx, sq.Eq{"status": ReviewStatusProcessing})
 		require.NoError(t, err, "count reviews")
 		require.Zero(t, count, "there should be no reviews stuck in 'processing' status")
 	})
-}
-
-func processReviewAsynchronously(ctx context.Context, db *Database, review *Review) (err error) {
-	defer func() {
-		// Always update status to "approved", "rejected" or "failed".
-		noCtx := context.Background()
-		err = db.Reviews.LockForUpdate(noCtx, sq.Eq{"id": review.ID}, []string{"id DESC"}, func(update *Review) {
-			now := time.Now().UTC()
-			update.ProcessedAt = &now
-			if err != nil {
-				update.Status = ReviewStatusFailed
-				return
-			}
-			update.Status = review.Status
-		})
-		if err != nil {
-			log.Printf("failed to save review: %v", err)
-		}
-	}()
-
-	// Simulate long-running work.
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(1 * time.Second):
-	}
-
-	// Simulate external API call to an LLM.
-	if rand.Intn(2) == 0 {
-		return fmt.Errorf("failed to process review: <some underlying error>")
-	}
-
-	review.Status = ReviewStatusApproved
-	if rand.Intn(2) == 0 {
-		review.Status = ReviewStatusRejected
-	}
-	now := time.Now().UTC()
-	review.ProcessedAt = &now
-	return nil
 }
