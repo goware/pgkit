@@ -21,7 +21,7 @@ type reviewsTable struct {
 	*pgkit.Table[Review, *Review, uint64]
 }
 
-func (w *reviewsTable) DequeueForProcessing(ctx context.Context, limit uint64) ([]*Review, error) {
+func (t *reviewsTable) DequeueForProcessing(ctx context.Context, limit uint64) ([]*Review, error) {
 	var dequeued []*Review
 	where := sq.Eq{
 		"status":     ReviewStatusPending,
@@ -31,7 +31,7 @@ func (w *reviewsTable) DequeueForProcessing(ctx context.Context, limit uint64) (
 		"created_at ASC",
 	}
 
-	err := w.LockForUpdates(ctx, where, orderBy, limit, func(reviews []*Review) {
+	err := t.LockForUpdates(ctx, where, orderBy, limit, func(reviews []*Review) {
 		now := time.Now().UTC()
 		for _, review := range reviews {
 			review.Status = ReviewStatusProcessing
