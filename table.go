@@ -124,8 +124,8 @@ func (t *Table[T, PT, IDT]) GetByID(ctx context.Context, id IDT) (PT, error) {
 	return t.Get(ctx, sq.Eq{t.IDColumn: id}, []string{t.IDColumn})
 }
 
-// GetByIDs returns records by their IDs.
-func (t *Table[T, PT, IDT]) GetByIDs(ctx context.Context, ids []IDT) ([]PT, error) {
+// ListByIDs returns records by their IDs.
+func (t *Table[T, PT, IDT]) ListByIDs(ctx context.Context, ids []IDT) ([]PT, error) {
 	return t.List(ctx, sq.Eq{t.IDColumn: ids}, nil)
 }
 

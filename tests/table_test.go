@@ -109,13 +109,13 @@ func TestTable(t *testing.T) {
 				require.Equal(t, article.DeletedAt, articleCheck.DeletedAt, "Article DeletedAt should match")
 			}
 
-			// Verify we can load all articles with .GetByIDs()
+			// Verify we can load all articles with .ListByIDs()
 			articleIDs := make([]uint64, len(articles))
 			for _, article := range articles {
 				articleIDs = append(articleIDs, article.ID)
 			}
-			articlesCheck, err := tx.Articles.GetByIDs(ctx, articleIDs)
-			require.NoError(t, err, "GetByIDs failed")
+			articlesCheck, err := tx.Articles.ListByIDs(ctx, articleIDs)
+			require.NoError(t, err, "ListByIDs failed")
 			require.Equal(t, len(articles), len(articlesCheck), "Number of articles should match")
 			for i, _ := range articlesCheck {
 				require.Equal(t, articles[i].ID, articlesCheck[i].ID, "Article ID should match")
