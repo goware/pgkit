@@ -157,6 +157,7 @@ func (t *Table[T, PT, IDT]) DeleteByID(ctx context.Context, id IDT) error {
 		if err := t.Save(ctx, record); err != nil {
 			return fmt.Errorf("soft delete: %w", err)
 		}
+		return nil
 	}
 
 	// Hard delete for tables without timestamps.
