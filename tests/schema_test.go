@@ -12,7 +12,7 @@ type Account struct {
 	Name      string    `db:"name"`
 	Disabled  bool      `db:"disabled"`
 	CreatedAt time.Time `db:"created_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
-	UpdatedAt time.Time `db:"created_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
+	UpdatedAt time.Time `db:"updated_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
 }
 
 func (a *Account) DBTableName() string      { return "accounts" }
@@ -34,7 +34,7 @@ type Article struct {
 	Content   Content    `db:"content"` // using JSONB postgres datatype
 	AccountID int64      `db:"account_id"`
 	CreatedAt time.Time  `db:"created_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
-	UpdatedAt time.Time  `db:"created_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
+	UpdatedAt time.Time  `db:"updated_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
 	DeletedAt *time.Time `db:"deleted_at"`
 }
 
@@ -65,7 +65,7 @@ type Review struct {
 	ArticleID   uint64       `db:"article_id"`
 	ProcessedAt *time.Time   `db:"processed_at"`
 	CreatedAt   time.Time    `db:"created_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
-	UpdatedAt   time.Time    `db:"created_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
+	UpdatedAt   time.Time    `db:"updated_at,omitempty"` // ,omitempty will rely on postgres DEFAULT
 	DeletedAt   *time.Time   `db:"deleted_at"`
 }
 
