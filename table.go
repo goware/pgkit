@@ -38,7 +38,7 @@ func (t *Table[T, PT, IDT]) Save(ctx context.Context, records ...PT) error {
 	record := records[0]
 
 	if err := record.Validate(); err != nil {
-		return err //nolint:wrapcheck
+		return fmt.Errorf("save: validate record: %w", err)
 	}
 
 	if row, ok := any(record).(hasSetUpdatedAt); ok {
@@ -50,7 +50,7 @@ func (t *Table[T, PT, IDT]) Save(ctx context.Context, records ...PT) error {
 	if record.GetID() == zero {
 		q := t.SQL.InsertRecord(record).Into(t.Name).Suffix("RETURNING *")
 		if err := t.Query.GetOne(ctx, q, record); err != nil {
-			return fmt.Errorf("insert records: %w", err)
+			return fmt.Errorf("save: insert record: %w", err)
 		}
 
 		return nil
@@ -59,14 +59,14 @@ func (t *Table[T, PT, IDT]) Save(ctx context.Context, records ...PT) error {
 	// Update
 	q := t.SQL.UpdateRecord(record, sq.Eq{t.IDColumn: record.GetID()}, t.Name)
 	if _, err := t.Query.Exec(ctx, q); err != nil {
-		return fmt.Errorf("update record: %w", err)
+		return fmt.Errorf("save: update record: %w", err)
 	}
 
 	return nil
 }
 
-// saveAll saves multiple records sequentially.
-// TODO: This can be likely optimized to use a batch insert.
+// saveAll saves multiple records.
+// TODO: This function can be likely optimized to use a batch insert query.
 func (t *Table[T, PT, IDT]) saveAll(ctx context.Context, records []PT) error {
 	for i := range records {
 		if err := t.Save(ctx, records[i]); err != nil {
@@ -93,7 +93,7 @@ func (t *Table[T, PT, IDT]) Get(ctx context.Context, where sq.Sqlizer, orderBy [
 		OrderBy(orderBy...)
 
 	if err := t.Query.GetOne(ctx, q, record); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get record: %w", err)
 	}
 
 	return record, nil
@@ -138,7 +138,7 @@ func (t *Table[T, PT, IDT]) Count(ctx context.Context, where sq.Sqlizer) (uint64
 		Where(where)
 
 	if err := t.Query.GetOne(ctx, q, &count); err != nil {
-		return count, fmt.Errorf("get one: %w", err)
+		return count, fmt.Errorf("count: %w", err)
 	}
 
 	return count, nil
@@ -148,13 +148,15 @@ func (t *Table[T, PT, IDT]) Count(ctx context.Context, where sq.Sqlizer) (uint64
 func (t *Table[T, PT, IDT]) DeleteByID(ctx context.Context, id IDT) error {
 	record, err := t.GetByID(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("delete: %w", err)
 	}
 
 	// Soft delete.
 	if row, ok := any(record).(hasSetDeletedAt); ok {
 		row.SetDeletedAt(time.Now().UTC())
-		return t.Save(ctx, record)
+		if err := t.Save(ctx, record); err != nil {
+			return fmt.Errorf("soft delete: %w", err)
+		}
 	}
 
 	// Hard delete for tables without timestamps.
@@ -164,8 +166,10 @@ func (t *Table[T, PT, IDT]) DeleteByID(ctx context.Context, id IDT) error {
 // HardDeleteByID permanently deletes a record by ID.
 func (t *Table[T, PT, IDT]) HardDeleteByID(ctx context.Context, id IDT) error {
 	q := t.SQL.Delete(t.Name).Where(sq.Eq{t.IDColumn: id})
-	_, err := t.Query.Exec(ctx, q)
-	return err
+	if _, err := t.Query.Exec(ctx, q); err != nil {
+		return fmt.Errorf("hard delete: %w", err)
+	}
+	return nil
 }
 
 // WithTx returns a table instance bound to the given transaction.
@@ -200,7 +204,7 @@ func (t *Table[T, PT, IDT]) LockForUpdate(ctx context.Context, where sq.Sqlizer,
 		}
 	})
 	if err != nil {
-		return fmt.Errorf("lock for update one: %w", err)
+		return err //nolint:wrapcheck
 	}
 
 	if noRows {
@@ -220,11 +224,16 @@ func (t *Table[T, PT, IDT]) LockForUpdate(ctx context.Context, where sq.Sqlizer,
 func (t *Table[T, PT, IDT]) LockForUpdates(ctx context.Context, where sq.Sqlizer, orderBy []string, limit uint64, updateFn func(records []PT)) error {
 	// Check if we're already in a transaction
 	if t.DB.Query.Tx != nil {
-		return t.lockForUpdatesWithTx(ctx, t.DB.Query.Tx, where, orderBy, limit, updateFn)
+		if err := t.lockForUpdatesWithTx(ctx, t.DB.Query.Tx, where, orderBy, limit, updateFn); err != nil {
+			return fmt.Errorf("lock for update (with tx): %w", err)
+		}
 	}
 
 	return pgx.BeginFunc(ctx, t.DB.Conn, func(pgTx pgx.Tx) error {
-		return t.lockForUpdatesWithTx(ctx, pgTx, where, orderBy, limit, updateFn)
+		if err := t.lockForUpdatesWithTx(ctx, pgTx, where, orderBy, limit, updateFn); err != nil {
+			return fmt.Errorf("lock for update (new tx): %w", err)
+		}
+		return nil
 	})
 }
 
