@@ -3,7 +3,8 @@ CREATE TABLE accounts (
   name VARCHAR(255),
   disabled BOOLEAN,
   new_column_not_in_code BOOLEAN, -- test for backward-compatible migrations, see https://github.com/goware/pgkit/issues/13
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
 CREATE TABLE articles (

@@ -12,7 +12,7 @@ import (
 // Table provides basic CRUD operations for database records.
 // Records must implement GetID() and Validate() methods.
 type Table[T any, PT interface {
-	*T // Enforce T is a pointer; and thus all methods are defined on a pointer receiver.
+	*T // Enforce T is a pointer.
 	GetID() IDT
 	Validate() error
 }, IDT comparable] struct {
