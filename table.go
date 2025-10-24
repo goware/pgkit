@@ -47,6 +47,10 @@ func (t *Table[T, PT, IDT]) Save(ctx context.Context, records ...PT) error {
 }
 
 func (t *Table[T, PT, IDT]) saveOne(ctx context.Context, record PT) error {
+	if record == nil {
+		return nil
+	}
+
 	if err := record.Validate(); err != nil {
 		return fmt.Errorf("validate record: %w", err)
 	}
@@ -56,7 +60,8 @@ func (t *Table[T, PT, IDT]) saveOne(ctx context.Context, record PT) error {
 	}
 
 	// Insert
-	if record.GetID() == *new(IDT) {
+	var zero IDT
+	if record.GetID() == zero {
 		q := t.SQL.
 			InsertRecord(record).
 			Into(t.Name).
@@ -84,11 +89,15 @@ func (t *Table[T, PT, IDT]) saveAll(ctx context.Context, records []PT) error {
 	now := time.Now().UTC()
 
 	insertRecords := make([]PT, 0)
-	insertIndices := make([]int, 0) // keep track of original indices
+	insertIndices := make([]int, 0) // keep track of original indices, so we can update the records with IDs in passed slice
 
 	updateQueries := make(Queries, 0)
 
 	for i, r := range records {
+		if r == nil {
+			continue
+		}
+
 		if err := r.Validate(); err != nil {
 			return fmt.Errorf("validate record: %w", err)
 		}
@@ -97,7 +106,8 @@ func (t *Table[T, PT, IDT]) saveAll(ctx context.Context, records []PT) error {
 			row.SetUpdatedAt(now)
 		}
 
-		if r.GetID() == *new(IDT) {
+		var zero IDT
+		if r.GetID() == zero {
 			if row, ok := any(r).(hasSetCreatedAt); ok {
 				row.SetCreatedAt(now)
 			}
