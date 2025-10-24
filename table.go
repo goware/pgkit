@@ -3,6 +3,7 @@ package pgkit
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -21,6 +22,10 @@ type Table[T any, PT interface {
 	IDColumn string
 }
 
+type hasSetCreatedAt interface {
+	SetCreatedAt(time.Time)
+}
+
 type hasSetUpdatedAt interface {
 	SetUpdatedAt(time.Time)
 }
@@ -29,16 +34,21 @@ type hasSetDeletedAt interface {
 	SetDeletedAt(time.Time)
 }
 
-// Save inserts or updates given records. Auto-detects insert vs update by ID.
+// Save inserts or updates given records. Auto-detects insert vs update by ID based on zerovalue of ID from GetID() method on record.
 func (t *Table[T, PT, IDT]) Save(ctx context.Context, records ...PT) error {
-	if len(records) != 1 {
+	switch len(records) {
+	case 0:
+		return nil
+	case 1:
+		return t.saveOne(ctx, records[0])
+	default:
 		return t.saveAll(ctx, records)
 	}
+}
 
-	record := records[0]
-
+func (t *Table[T, PT, IDT]) saveOne(ctx context.Context, record PT) error {
 	if err := record.Validate(); err != nil {
-		return fmt.Errorf("save: validate record: %w", err)
+		return fmt.Errorf("validate record: %w", err)
 	}
 
 	if row, ok := any(record).(hasSetUpdatedAt); ok {
@@ -46,9 +56,12 @@ func (t *Table[T, PT, IDT]) Save(ctx context.Context, records ...PT) error {
 	}
 
 	// Insert
-	var zero IDT
-	if record.GetID() == zero {
-		q := t.SQL.InsertRecord(record).Into(t.Name).Suffix("RETURNING *")
+	if record.GetID() == *new(IDT) {
+		q := t.SQL.
+			InsertRecord(record).
+			Into(t.Name).
+			Suffix("RETURNING *")
+
 		if err := t.Query.GetOne(ctx, q, record); err != nil {
 			return fmt.Errorf("save: insert record: %w", err)
 		}
@@ -65,12 +78,68 @@ func (t *Table[T, PT, IDT]) Save(ctx context.Context, records ...PT) error {
 	return nil
 }
 
-// saveAll saves multiple records.
-// TODO: This function can be likely optimized to use a batch insert query.
+const chunkSize = 1000
+
 func (t *Table[T, PT, IDT]) saveAll(ctx context.Context, records []PT) error {
-	for i := range records {
-		if err := t.Save(ctx, records[i]); err != nil {
-			return err
+	now := time.Now().UTC()
+
+	insertRecords := make([]PT, 0)
+	insertIndices := make([]int, 0) // keep track of original indices
+
+	updateQueries := make(Queries, 0)
+
+	for i, r := range records {
+		if err := r.Validate(); err != nil {
+			return fmt.Errorf("validate record: %w", err)
+		}
+
+		if row, ok := any(r).(hasSetUpdatedAt); ok {
+			row.SetUpdatedAt(now)
+		}
+
+		if r.GetID() == *new(IDT) {
+			if row, ok := any(r).(hasSetCreatedAt); ok {
+				row.SetCreatedAt(now)
+			}
+
+			insertRecords = append(insertRecords, r)
+			insertIndices = append(insertIndices, i) // remember index
+		} else {
+			updateQueries.Add(t.SQL.
+				UpdateRecord(r, sq.Eq{"id": r.GetID()}, t.Name).
+				SuffixExpr(sq.Expr(" RETURNING *")),
+			)
+		}
+	}
+
+	// Handle inserts in chunks, has to be done manually, slices.Chunk does not return index :/
+	for start := 0; start < len(insertRecords); start += chunkSize {
+		end := start + chunkSize
+		if end > len(insertRecords) {
+			end = len(insertRecords)
+		}
+
+		chunk := insertRecords[start:end]
+		q := t.SQL.
+			InsertRecords(chunk).
+			Into(t.Name).
+			SuffixExpr(sq.Expr(" RETURNING *"))
+
+		if err := t.Query.GetAll(ctx, q, &chunk); err != nil {
+			return fmt.Errorf("insert records: %w", err)
+		}
+
+		// update original slice
+		for i, rr := range chunk {
+			records[insertIndices[start+i]] = rr
+		}
+	}
+
+	if len(updateQueries) > 0 {
+		for chunk := range slices.Chunk(updateQueries, chunkSize) {
+			if _, err := t.Query.BatchExec(ctx, chunk); err != nil {
+				return fmt.Errorf("update records: %w", err)
+			}
 		}
 	}
 
