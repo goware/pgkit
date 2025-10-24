@@ -56,6 +56,41 @@ func TestTable(t *testing.T) {
 		require.Equal(t, uint64(1), count, "Expected 1 account")
 	})
 
+	t.Run("Save multiple", func(t *testing.T) {
+		t.Parallel()
+		// Create account.
+		account := &Account{Name: "Save Multiple Account"}
+		err := db.Accounts.Save(ctx, account)
+		require.NoError(t, err, "Create account failed")
+		articles := []*Article{
+			{Author: "FirstNew", AccountID: account.ID},
+			{Author: "SecondNew", AccountID: account.ID},
+			{ID: 10001, Author: "FirstOld", AccountID: account.ID},
+			{ID: 10002, Author: "SecondOld", AccountID: account.ID},
+		}
+		err = db.Articles.Save(ctx, articles...)
+		require.NoError(t, err, "Save articles")
+		require.NotZero(t, articles[0].ID, "ID should be set")
+		require.NotZero(t, articles[1].ID, "ID should be set")
+		require.Equal(t, uint64(10001), articles[2].ID, "ID should be same")
+		require.Equal(t, uint64(10002), articles[3].ID, "ID should be same")
+		// test update for multiple records
+		updateArticles := []*Article{
+			articles[0],
+			articles[1],
+		}
+		updateArticles[0].Author = "Updated Author Name 1"
+		updateArticles[1].Author = "Updated Author Name 2"
+		err = db.Articles.Save(ctx, updateArticles...)
+		require.NoError(t, err, "Save articles")
+		updateArticle0, err := db.Articles.GetByID(ctx, articles[0].ID)
+		require.NoError(t, err, "Get By ID")
+		require.Equal(t, updateArticles[0].Author, updateArticle0.Author, "Author should be same")
+		updateArticle1, err := db.Articles.GetByID(ctx, articles[1].ID)
+		require.NoError(t, err, "Get By ID")
+		require.Equal(t, updateArticles[1].Author, updateArticle1.Author, "Author should be same")
+	})
+
 	t.Run("Complex Transaction", func(t *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
@@ -104,8 +139,8 @@ func TestTable(t *testing.T) {
 				require.Equal(t, article.Author, articleCheck.Author, "Article Author should match")
 				require.Equal(t, article.AccountID, articleCheck.AccountID, "Article AccountID should match")
 				require.Equal(t, article.CreatedAt, articleCheck.CreatedAt, "Article CreatedAt should match")
-				//require.Equal(t, article.UpdatedAt, articleCheck.UpdatedAt, "Article UpdatedAt should match")
-				//require.NotEqual(t, article.UpdatedAt, articleCheck.UpdatedAt, "Article UpdatedAt shouldn't match") // The .Save() aboe updates the timestamp.
+				// require.Equal(t, article.UpdatedAt, articleCheck.UpdatedAt, "Article UpdatedAt should match")
+				// require.NotEqual(t, article.UpdatedAt, articleCheck.UpdatedAt, "Article UpdatedAt shouldn't match") // The .Save() aboe updates the timestamp.
 				require.Equal(t, article.DeletedAt, articleCheck.DeletedAt, "Article DeletedAt should match")
 			}
 
@@ -117,12 +152,12 @@ func TestTable(t *testing.T) {
 			articlesCheck, err := tx.Articles.ListByIDs(ctx, articleIDs)
 			require.NoError(t, err, "ListByIDs failed")
 			require.Equal(t, len(articles), len(articlesCheck), "Number of articles should match")
-			for i, _ := range articlesCheck {
+			for i := range articlesCheck {
 				require.Equal(t, articles[i].ID, articlesCheck[i].ID, "Article ID should match")
 				require.Equal(t, articles[i].Author, articlesCheck[i].Author, "Article Author should match")
 				require.Equal(t, articles[i].AccountID, articlesCheck[i].AccountID, "Article AccountID should match")
 				require.Equal(t, articles[i].CreatedAt, articlesCheck[i].CreatedAt, "Article CreatedAt should match")
-				//require.Equal(t, articles[i].UpdatedAt, articlesCheck[i].UpdatedAt, "Article UpdatedAt should match")
+				// require.Equal(t, articles[i].UpdatedAt, articlesCheck[i].UpdatedAt, "Article UpdatedAt should match")
 				require.Equal(t, articles[i].DeletedAt, articlesCheck[i].DeletedAt, "Article DeletedAt should match")
 			}
 
