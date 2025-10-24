@@ -48,7 +48,7 @@ func (t *Table[T, PT, IDT]) Save(ctx context.Context, records ...PT) error {
 
 func (t *Table[T, PT, IDT]) saveOne(ctx context.Context, record PT) error {
 	if record == nil {
-		return nil
+		return fmt.Errorf("record is nil")
 	}
 
 	if err := record.Validate(); err != nil {
@@ -95,7 +95,7 @@ func (t *Table[T, PT, IDT]) saveAll(ctx context.Context, records []PT) error {
 
 	for i, r := range records {
 		if r == nil {
-			continue
+			return fmt.Errorf("record with index=%d is nil", i)
 		}
 
 		if err := r.Validate(); err != nil {
