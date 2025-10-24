@@ -62,6 +62,7 @@ func TestTable(t *testing.T) {
 		account := &Account{Name: "Save Multiple Account"}
 		err := db.Accounts.Save(ctx, account)
 		require.NoError(t, err, "Create account failed")
+
 		articles := []*Article{
 			{Author: "FirstNew", AccountID: account.ID},
 			{Author: "SecondNew", AccountID: account.ID},
@@ -74,6 +75,7 @@ func TestTable(t *testing.T) {
 		require.NotZero(t, articles[1].ID, "ID should be set")
 		require.Equal(t, uint64(10001), articles[2].ID, "ID should be same")
 		require.Equal(t, uint64(10002), articles[3].ID, "ID should be same")
+
 		// test update for multiple records
 		updateArticles := []*Article{
 			articles[0],
@@ -83,9 +85,11 @@ func TestTable(t *testing.T) {
 		updateArticles[1].Author = "Updated Author Name 2"
 		err = db.Articles.Save(ctx, updateArticles...)
 		require.NoError(t, err, "Save articles")
+
 		updateArticle0, err := db.Articles.GetByID(ctx, articles[0].ID)
 		require.NoError(t, err, "Get By ID")
 		require.Equal(t, updateArticles[0].Author, updateArticle0.Author, "Author should be same")
+
 		updateArticle1, err := db.Articles.GetByID(ctx, articles[1].ID)
 		require.NoError(t, err, "Get By ID")
 		require.Equal(t, updateArticles[1].Author, updateArticle1.Author, "Author should be same")
@@ -217,7 +221,7 @@ func TestLockForUpdates(t *testing.T) {
 		err = db.Reviews.Save(ctx, reviews...)
 		require.NoError(t, err, "create review")
 
-		var ids [][]uint64 = make([][]uint64, 10)
+		ids := make([][]uint64, 10)
 		var wg sync.WaitGroup
 
 		for range 10 {
