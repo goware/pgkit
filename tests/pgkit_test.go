@@ -310,8 +310,16 @@ func TestRecordsWithJSONB(t *testing.T) {
 func TestRecordsWithJSONStruct(t *testing.T) {
 	truncateTable(t, "articles")
 
+	account := &Account{
+		Name: "TestRecordsWithJSONStruct",
+	}
+	err := DB.Query.QueryRow(context.Background(), DB.SQL.InsertRecord(account).Suffix(`RETURNING "id"`)).Scan(&account.ID)
+	assert.NoError(t, err)
+	assert.True(t, account.ID > 0)
+
 	article := &Article{
-		Author: "Gary",
+		AccountID: account.ID,
+		Author:    "Gary",
 		Content: Content{
 			Title: "How to cook pizza",
 			Body:  "flour+water+salt+yeast+cheese",
@@ -322,7 +330,7 @@ func TestRecordsWithJSONStruct(t *testing.T) {
 	cols, _, err := pgkit.Map(article)
 	assert.NoError(t, err)
 	sort.Sort(sort.StringSlice(cols))
-	assert.Equal(t, []string{"alias", "author", "content"}, cols)
+	assert.Equal(t, []string{"account_id", "alias", "author", "content", "deleted_at"}, cols)
 
 	// Insert record
 	q1 := DB.SQL.InsertRecord(article, "articles")
