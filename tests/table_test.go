@@ -54,6 +54,15 @@ func TestTable(t *testing.T) {
 		count, err = db.Accounts.Count(ctx, nil)
 		require.NoError(t, err, "FindAll failed")
 		require.Equal(t, uint64(1), count, "Expected 1 account")
+
+		// Iterate all accounts.
+		iter, err := db.Accounts.Iter(ctx, nil, nil)
+		require.NoError(t, err, "Iter failed")
+		var accounts []Account
+		for account, err := range iter {
+			require.NoError(t, err, "Iter error")
+			accounts = append(accounts, *account)
+		}
 	})
 
 	t.Run("Save multiple", func(t *testing.T) {
