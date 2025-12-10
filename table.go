@@ -2,7 +2,9 @@ package pgkit
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"iter"
 	"slices"
 	"time"
 
@@ -156,20 +158,25 @@ func (t *Table[T, PT, IDT]) saveAll(ctx context.Context, records []PT) error {
 	return nil
 }
 
-// Get returns the first record matching the condition.
-func (t *Table[T, PT, IDT]) Get(ctx context.Context, where sq.Sqlizer, orderBy []string) (PT, error) {
+// getListQuery builds a base select query for listing records.
+func (t *Table[T, PT, IDT]) getListQuery(where sq.Sqlizer, orderBy []string) sq.SelectBuilder {
 	if len(orderBy) == 0 {
 		orderBy = []string{t.IDColumn}
 	}
-
-	record := new(T)
 
 	q := t.SQL.
 		Select("*").
 		From(t.Name).
 		Where(where).
-		Limit(1).
 		OrderBy(orderBy...)
+	return q
+}
+
+// Get returns the first record matching the condition.
+func (t *Table[T, PT, IDT]) Get(ctx context.Context, where sq.Sqlizer, orderBy []string) (PT, error) {
+	record := new(T)
+
+	q := t.getListQuery(where, orderBy).Limit(1)
 
 	if err := t.Query.GetOne(ctx, q, record); err != nil {
 		return nil, fmt.Errorf("get record: %w", err)
@@ -180,22 +187,38 @@ func (t *Table[T, PT, IDT]) Get(ctx context.Context, where sq.Sqlizer, orderBy [
 
 // List returns all records matching the condition.
 func (t *Table[T, PT, IDT]) List(ctx context.Context, where sq.Sqlizer, orderBy []string) ([]PT, error) {
-	if len(orderBy) == 0 {
-		orderBy = []string{t.IDColumn}
-	}
-
-	q := t.SQL.
-		Select("*").
-		From(t.Name).
-		Where(where).
-		OrderBy(orderBy...)
-
+	q := t.getListQuery(where, orderBy)
 	var records []PT
 	if err := t.Query.GetAll(ctx, q, &records); err != nil {
 		return nil, err
 	}
 
 	return records, nil
+}
+
+// Iter returns an iterator for records matching the condition.
+func (t *Table[T, PT, IDT]) Iter(ctx context.Context, where sq.Sqlizer, orderBy []string) (iter.Seq2[PT, error], error) {
+	q := t.getListQuery(where, orderBy)
+	rows, err := t.Query.QueryRows(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("query rows: %w", err)
+	}
+
+	return func(yield func(PT, error) bool) {
+		defer rows.Close()
+		for rows.Next() {
+			var record T
+			if err := t.Query.Scan.ScanOne(&record, rows); err != nil {
+				if !errors.Is(err, pgx.ErrNoRows) {
+					yield(nil, err)
+				}
+				return
+			}
+			if !yield(&record, nil) {
+				return
+			}
+		}
+	}, nil
 }
 
 // GetByID returns a record by its ID.
