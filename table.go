@@ -12,17 +12,93 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// NewTable creates a new Table instance for a specific record type.
+//
+// T: the concrete struct type representing a single record (e.g., Account).
+// PT: the pointer type to T (e.g., *Account), which must implement tableP[T, IDT].
+// IDT: the type of the primary key (e.g., int64), which must be comparable.
+//
+// db: a pointer to the DB instance
+//
+// The function introspects a zero value of T to extract metadata if it
+// implements the Base[IDT], specifically:
+//
+//   - Validate() error -> validation function, which si called everytime on saving
+//   - DBTableName() string -> returns the database table name.
+//   - GetID() IDT -> returns primary key ID
+//   - GetIDColumn() string -> returns the name of the primary key column, which is then used for default sorting
+//
+// Additionally, records may optionally implement the following interfaces to
+// allow automatic timestamp management:
+//
+//   - hasSetCreatedAt -> SetCreatedAt(time.Time), called automatically on record creation
+//   - hasSetUpdatedAt -> SetUpdatedAt(time.Time), called automatically on record creation and update
+//   - hasSetDeletedAt -> SetDeletedAt(time.Time), called automatically on soft deletion
+//
+// Example usage:
+//
+//	type accountsTable struct {
+//	    *pgkit.Table[Account, *Account, int64]
+//	}
+//
+//	at := accountsTable{
+//	    Table: pgkit.NewTable[Account, *Account, int64](db),
+//	}
+//
+//	type Account struct {
+//	    ID        int64     `db:"id,omitempty"`
+//	    Name      string    `db:"name"`
+//	    CreatedAt time.Time `db:"created_at,omitempty"` // ,omitempty will rely on Postgres DEFAULT
+//	    UpdatedAt time.Time `db:"updated_at,omitempty"` // ,omitempty will rely on Postgres DEFAULT
+//	}
+//
+//	func (a *Account) DBTableName() string      { return "accounts" }
+//	func (a *Account) GetIDColumn() string      { return "id" }
+//	func (a *Account) GetID() int64             { return a.ID }
+//	func (a *Account) SetUpdatedAt(t time.Time) { a.UpdatedAt = t }
+//
+//	func (a *Account) Validate() error {
+//	    if a.Name == "" {
+//	        return fmt.Errorf("name is required")
+//	    }
+//	    return nil
+//	}
+func NewTable[T any, PT TableP[T, IDT], IDT comparable](db *DB, name string) *Table[T, PT, IDT] {
+	var t T
+
+	idColumn := ""
+	if v, ok := any(&t).(Base[IDT]); ok {
+		idColumn = v.GetIDColumn()
+	}
+
+	return &Table[T, PT, IDT]{
+		DB:       db,
+		Name:     name,
+		IDColumn: idColumn,
+	}
+}
+
 // Table provides basic CRUD operations for database records.
 // Records must implement GetID() and Validate() methods.
-type Table[T any, PT interface {
-	*T // Enforce T is a pointer.
-	GetID() IDT
-	Validate() error
-}, IDT comparable] struct {
+type Table[T any, PT TableP[T, IDT], IDT comparable] struct {
 	*DB
 	Name     string
 	IDColumn string
 }
+
+type TableP[T any, IDT comparable] interface {
+	*T // Enforce that T is a pointer.
+	Base[IDT]
+}
+
+type Base[IDT comparable] interface {
+	Validate() error
+
+	GetID() IDT
+	GetIDColumn() string
+}
+
+func (t *Table[T, PT, IDT]) DBTableName() string { return t.Name }
 
 type hasSetCreatedAt interface {
 	SetCreatedAt(time.Time)
@@ -70,7 +146,7 @@ func (t *Table[T, PT, IDT]) saveOne(ctx context.Context, record PT) error {
 			Suffix("RETURNING *")
 
 		if err := t.Query.GetOne(ctx, q, record); err != nil {
-			return fmt.Errorf("save: insert record: %w", err)
+			return fmt.Errorf("insert record: %w", err)
 		}
 
 		return nil
@@ -79,7 +155,7 @@ func (t *Table[T, PT, IDT]) saveOne(ctx context.Context, record PT) error {
 	// Update
 	q := t.SQL.UpdateRecord(record, sq.Eq{t.IDColumn: record.GetID()}, t.Name)
 	if _, err := t.Query.Exec(ctx, q); err != nil {
-		return fmt.Errorf("save: update record: %w", err)
+		return fmt.Errorf("update record: %w", err)
 	}
 
 	return nil

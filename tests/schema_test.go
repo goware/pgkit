@@ -16,6 +16,7 @@ type Account struct {
 }
 
 func (a *Account) DBTableName() string      { return "accounts" }
+func (a *Account) GetIDColumn() string      { return "id" }
 func (a *Account) GetID() int64             { return a.ID }
 func (a *Account) SetUpdatedAt(t time.Time) { a.UpdatedAt = t }
 
@@ -38,6 +39,7 @@ type Article struct {
 	DeletedAt *time.Time `db:"deleted_at"`
 }
 
+func (a *Article) GetIDColumn() string      { return "id" }
 func (a *Article) GetID() uint64            { return a.ID }
 func (a *Article) SetUpdatedAt(t time.Time) { a.UpdatedAt = t }
 func (a *Article) SetDeletedAt(t time.Time) { a.DeletedAt = &t }
@@ -69,6 +71,7 @@ type Review struct {
 	DeletedAt   *time.Time   `db:"deleted_at"`
 }
 
+func (r *Review) GetIDColumn() string      { return "id" }
 func (r *Review) GetID() uint64            { return r.ID }
 func (r *Review) SetUpdatedAt(t time.Time) { r.UpdatedAt = t }
 func (r *Review) SetDeletedAt(t time.Time) { r.DeletedAt = &t }
