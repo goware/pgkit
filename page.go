@@ -199,6 +199,26 @@ func (p Paginator[T]) PrepareQuery(q sq.SelectBuilder, page *Page) ([]T, sq.Sele
 	return make([]T, 0, limit+1), q
 }
 
+func (p Paginator[T]) PrepareRaw(q string, args []any, page *Page) ([]T, string, []any) {
+	limit, offset := page.Limit(), page.Offset()
+
+	q = q + " ORDER BY " + strings.Join(p.getOrder(page), ", ")
+	q = q + " LIMIT @limit OFFSET @offset"
+
+	for i, arg := range args {
+		if existing, ok := arg.(pgx.NamedArgs); ok {
+			existing["limit"] = limit + 1
+			existing["offset"] = offset
+			break
+		}
+		if i == len(args)-1 {
+			args = append(args, pgx.NamedArgs{"limit": limit + 1, "offset": offset})
+		}
+	}
+
+	return make([]T, 0, limit+1), q, args
+}
+
 // PrepareResult prepares the paginated result. If the number of rows is n+1:
 // - it removes the last element, returning n elements
 // - it sets more to true in the page object
