@@ -37,15 +37,19 @@ func (s Sort) String() string {
 	return fmt.Sprintf("%s %s", s.Column, s.Order)
 }
 
-var _MatcherOrderBy = regexp.MustCompile(`-?([a-zA-Z0-9]+)`)
+func (s Sort) IsValid() bool {
+	return s.Column != "" && _MatcherOrderBy.MatchString(s.Column)
+}
+
+var _MatcherOrderBy = regexp.MustCompile(`^-?([a-zA-Z_][a-zA-Z0-9_]*)$`)
 
 func NewSort(s string) (Sort, bool) {
-	if s == "" || !_MatcherOrderBy.MatchString(s) {
-		return Sort{}, false
-	}
 	sort := Sort{
 		Column: s,
 		Order:  Asc,
+	}
+	if !sort.IsValid() {
+		return Sort{}, false
 	}
 	if strings.HasPrefix(s, "-") {
 		sort.Column = s[1:]
@@ -79,7 +83,13 @@ func NewPage(size, page uint32, sort ...Sort) *Page {
 func (p *Page) GetOrder(defaultSort ...string) []Sort {
 	// if page has sort, use it
 	if p != nil && len(p.Sort) != 0 {
-		return p.Sort
+		sort := make([]Sort, 0, len(p.Sort))
+		for _, s := range p.Sort {
+			if s.IsValid() {
+				sort = append(sort, s)
+			}
+		}
+		return sort
 	}
 	// if page has column, use default sort
 	if p == nil || p.Column == "" {
