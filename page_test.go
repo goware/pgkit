@@ -58,7 +58,6 @@ func TestInvalidSort(t *testing.T) {
 
 	sql, args, err := query.ToSql()
 	require.NoError(t, err)
-	require.Equal(t, "SELECT * FROM t ORDER BY name DESC LIMIT 11 OFFSET 0", sql)
+	require.Equal(t, "SELECT * FROM t ORDER BY \"ID; DROP TABLE users;\" ASC, \"name\" DESC LIMIT 11 OFFSET 0", sql)
 	require.Empty(t, args)
-
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -37,19 +38,15 @@ func (s Sort) String() string {
 	return fmt.Sprintf("%s %s", s.Column, s.Order)
 }
 
-func (s Sort) IsValid() bool {
-	return s.Column != "" && _MatcherOrderBy.MatchString(s.Column)
-}
-
-var _MatcherOrderBy = regexp.MustCompile(`^-?([a-zA-Z_][a-zA-Z0-9_]*)$`)
+var _MatcherOrderBy = regexp.MustCompile(`-?([a-zA-Z0-9]+)`)
 
 func NewSort(s string) (Sort, bool) {
+	if s == "" || !_MatcherOrderBy.MatchString(s) {
+		return Sort{}, false
+	}
 	sort := Sort{
 		Column: s,
 		Order:  Asc,
-	}
-	if !sort.IsValid() {
-		return Sort{}, false
 	}
 	if strings.HasPrefix(s, "-") {
 		sort.Column = s[1:]
@@ -83,13 +80,11 @@ func NewPage(size, page uint32, sort ...Sort) *Page {
 func (p *Page) GetOrder(defaultSort ...string) []Sort {
 	// if page has sort, use it
 	if p != nil && len(p.Sort) != 0 {
-		sort := make([]Sort, 0, len(p.Sort))
-		for _, s := range p.Sort {
-			if s.IsValid() {
-				sort = append(sort, s)
-			}
+		for i, s := range p.Sort {
+			s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
+			p.Sort[i] = s
 		}
-		return sort
+		return p.Sort
 	}
 	// if page has column, use default sort
 	if p == nil || p.Column == "" {
