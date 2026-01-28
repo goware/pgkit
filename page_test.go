@@ -74,3 +74,16 @@ func TestPageColumnInjection(t *testing.T) {
 	require.Equal(t, "SELECT * FROM t ORDER BY \"id; DROP TABLE users;--\" ASC LIMIT 11 OFFSET 0", sql)
 	require.Empty(t, args)
 }
+
+func TestPageColumnSpaces(t *testing.T) {
+	paginator := pgkit.NewPaginator[T]()
+	page := pgkit.NewPage(0, 0)
+	page.Column = "id, name"
+
+	_, query := paginator.PrepareQuery(sq.Select("*").From("t"), page)
+
+	sql, args, err := query.ToSql()
+	require.NoError(t, err)
+	require.Equal(t, "SELECT * FROM t ORDER BY \"id\" ASC, \"name\" ASC LIMIT 11 OFFSET 0", sql)
+	require.Empty(t, args)
+}
