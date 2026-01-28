@@ -100,6 +100,7 @@ func (p *Page) GetOrder(defaultSort ...string) []Sort {
 	sort := make([]Sort, 0)
 	for _, part := range strings.Split(p.Column, ",") {
 		if s, ok := NewSort(part); ok {
+			s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
 			sort = append(sort, s)
 		}
 	}
