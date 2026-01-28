@@ -17,7 +17,7 @@ func TestPagination(t *testing.T) {
 		MaxSize     = 5
 		Sort        = "ID"
 	)
-	paginator := pgkit.NewPaginator[T](
+	paginator := pgkit.NewPaginator(
 		pgkit.WithColumnFunc[T](strings.ToLower),
 		pgkit.WithDefaultSize[T](DefaultSize),
 		pgkit.WithMaxSize[T](MaxSize),
@@ -44,4 +44,20 @@ func TestPagination(t *testing.T) {
 	result = paginator.PrepareResult(make([]T, MaxSize+2), page)
 	require.Len(t, result, MaxSize)
 	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize, More: true}, page)
+}
+
+func TestInvalidSort(t *testing.T) {
+	paginator := pgkit.NewPaginator[T]()
+	page := pgkit.NewPage(0, 0)
+	page.Sort = []pgkit.Sort{
+		{Column: "ID; DROP TABLE users;", Order: pgkit.Asc},
+		{Column: "name", Order: pgkit.Desc},
+	}
+
+	_, query := paginator.PrepareQuery(sq.Select("*").From("t"), page)
+
+	sql, args, err := query.ToSql()
+	require.NoError(t, err)
+	require.Equal(t, "SELECT * FROM t ORDER BY \"ID; DROP TABLE users;\" ASC, \"name\" DESC LIMIT 11 OFFSET 0", sql)
+	require.Empty(t, args)
 }

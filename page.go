@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -79,6 +80,10 @@ func NewPage(size, page uint32, sort ...Sort) *Page {
 func (p *Page) GetOrder(defaultSort ...string) []Sort {
 	// if page has sort, use it
 	if p != nil && len(p.Sort) != 0 {
+		for i, s := range p.Sort {
+			s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
+			p.Sort[i] = s
+		}
 		return p.Sort
 	}
 	// if page has column, use default sort
@@ -192,6 +197,26 @@ func (p Paginator[T]) PrepareQuery(q sq.SelectBuilder, page *Page) ([]T, sq.Sele
 	limit := page.Limit()
 	q = q.Limit(page.Limit() + 1).Offset(page.Offset()).OrderBy(p.getOrder(page)...)
 	return make([]T, 0, limit+1), q
+}
+
+func (p Paginator[T]) PrepareRaw(q string, args []any, page *Page) ([]T, string, []any) {
+	limit, offset := page.Limit(), page.Offset()
+
+	q = q + " ORDER BY " + strings.Join(p.getOrder(page), ", ")
+	q = q + " LIMIT @limit OFFSET @offset"
+
+	for i, arg := range args {
+		if existing, ok := arg.(pgx.NamedArgs); ok {
+			existing["limit"] = limit + 1
+			existing["offset"] = offset
+			break
+		}
+		if i == len(args)-1 {
+			args = append(args, pgx.NamedArgs{"limit": limit + 1, "offset": offset})
+		}
+	}
+
+	return make([]T, 0, limit+1), q, args
 }
 
 // PrepareResult prepares the paginated result. If the number of rows is n+1:
