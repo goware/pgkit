@@ -41,6 +41,7 @@ func (s Sort) String() string {
 var _MatcherOrderBy = regexp.MustCompile(`-?([a-zA-Z0-9]+)`)
 
 func NewSort(s string) (Sort, bool) {
+	s = strings.TrimSpace(s)
 	if s == "" || !_MatcherOrderBy.MatchString(s) {
 		return Sort{}, false
 	}
@@ -81,6 +82,7 @@ func (p *Page) GetOrder(defaultSort ...string) []Sort {
 	// if page has sort, use it
 	if p != nil && len(p.Sort) != 0 {
 		for i, s := range p.Sort {
+			s.Column = strings.TrimSpace(s.Column)
 			s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
 			p.Sort[i] = s
 		}
@@ -99,7 +101,12 @@ func (p *Page) GetOrder(defaultSort ...string) []Sort {
 	// use column
 	sort := make([]Sort, 0)
 	for _, part := range strings.Split(p.Column, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
 		if s, ok := NewSort(part); ok {
+			s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
 			sort = append(sort, s)
 		}
 	}
