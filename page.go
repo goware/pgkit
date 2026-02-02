@@ -32,13 +32,22 @@ func (s Sort) String() string {
 	if s.Column == "" {
 		return ""
 	}
-	if s.Order == "" {
-		s.Order = Asc
-	}
+	s.Order = sanitizeOrder(s.Order)
 	return fmt.Sprintf("%s %s", s.Column, s.Order)
 }
 
 var _MatcherOrderBy = regexp.MustCompile(`-?([a-zA-Z0-9]+)`)
+
+func sanitizeOrder(order Order) Order {
+	switch strings.ToUpper(strings.TrimSpace(string(order))) {
+	case string(Desc):
+		return Desc
+	case string(Asc):
+		return Asc
+	default:
+		return Asc
+	}
+}
 
 func NewSort(s string) (Sort, bool) {
 	s = strings.TrimSpace(s)
@@ -84,6 +93,7 @@ func (p *Page) GetOrder(defaultSort ...string) []Sort {
 		for i, s := range p.Sort {
 			s.Column = strings.TrimSpace(s.Column)
 			s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
+			s.Order = sanitizeOrder(s.Order)
 			p.Sort[i] = s
 		}
 		return p.Sort
