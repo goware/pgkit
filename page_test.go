@@ -87,3 +87,20 @@ func TestPageColumnSpaces(t *testing.T) {
 	require.Equal(t, "SELECT * FROM t ORDER BY \"id\" ASC, \"name\" ASC LIMIT 11 OFFSET 0", sql)
 	require.Empty(t, args)
 }
+
+func TestSortOrderInjection(t *testing.T) {
+	paginator := pgkit.NewPaginator[T]()
+	page := pgkit.NewPage(0, 0)
+	page.Sort = []pgkit.Sort{
+		{Column: "id", Order: pgkit.Order("DESC; DROP TABLE users;--")},
+		{Column: "name", Order: pgkit.Order("desc")},
+		{Column: "created_at", Order: pgkit.Order(" ASC ")},
+	}
+
+	_, query := paginator.PrepareQuery(sq.Select("*").From("t"), page)
+
+	sql, args, err := query.ToSql()
+	require.NoError(t, err)
+	require.Equal(t, "SELECT * FROM t ORDER BY \"id\" ASC, \"name\" DESC, \"created_at\" ASC LIMIT 11 OFFSET 0", sql)
+	require.Empty(t, args)
+}
