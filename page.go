@@ -123,7 +123,7 @@ func (p *Page) GetOrder(defaultSort ...string) []Sort {
 	return sort
 }
 
-func (p *Page) Offset() uint64 {
+func (p *Page) Offset(o *PaginatorOptions) uint64 {
 	n := uint64(1)
 	if p != nil && p.Page != 0 {
 		n = uint64(p.Page)
@@ -131,11 +131,14 @@ func (p *Page) Offset() uint64 {
 	if n < 1 {
 		n = 1
 	}
-	return (n - 1) * p.Limit()
+	return (n - 1) * p.Limit(o)
 }
 
-func (p *Page) Limit() uint64 {
-	var n = uint64(DefaultPageSize)
+func (p *Page) Limit(o *PaginatorOptions) uint64 {
+	n := uint64(DefaultPageSize)
+	if o != nil && o.DefaultSize != 0 {
+		n = uint64(o.DefaultSize)
+	}
 	if p != nil && p.Size != 0 {
 		n = uint64(p.Size)
 	}
@@ -146,55 +149,61 @@ func (p *Page) Limit() uint64 {
 }
 
 // PaginatorOption is a function that sets an option on a paginator.
-type PaginatorOption[T any] func(*Paginator[T])
+type PaginatorOption func(*PaginatorOptions)
 
 // WithDefaultSize sets the default page size.
-func WithDefaultSize[T any](size uint32) PaginatorOption[T] {
-	return func(p *Paginator[T]) { p.defaultSize = size }
+func WithDefaultSize(size uint32) PaginatorOption {
+	return func(p *PaginatorOptions) { p.DefaultSize = size }
 }
 
 // WithMaxSize sets the maximum page size.
-func WithMaxSize[T any](size uint32) PaginatorOption[T] {
-	return func(p *Paginator[T]) { p.maxSize = size }
+func WithMaxSize(size uint32) PaginatorOption {
+	return func(p *PaginatorOptions) { p.MaxSize = size }
 }
 
 // WithSort sets the default sort order.
-func WithSort[T any](sort ...string) PaginatorOption[T] {
-	return func(p *Paginator[T]) { p.defaultSort = sort }
+func WithSort(sort ...string) PaginatorOption {
+	return func(p *PaginatorOptions) { p.Sort = sort }
 }
 
 // WithColumnFunc sets a function to transform column names.
-func WithColumnFunc[T any](f func(string) string) PaginatorOption[T] {
-	return func(p *Paginator[T]) { p.columnFunc = f }
+func WithColumnFunc(f func(string) string) PaginatorOption {
+	return func(p *PaginatorOptions) { p.ColumnFunc = f }
 }
 
 // NewPaginator creates a new paginator with the given options.
 // Default page size is 10 and max size is 50.
-func NewPaginator[T any](options ...PaginatorOption[T]) Paginator[T] {
+func NewPaginator[T any](options ...PaginatorOption) Paginator[T] {
 	p := Paginator[T]{
-		defaultSize: DefaultPageSize,
-		maxSize:     MaxPageSize,
+		PaginatorOptions: PaginatorOptions{
+			DefaultSize: DefaultPageSize,
+			MaxSize:     MaxPageSize,
+		},
 	}
 	for _, opt := range options {
-		opt(&p)
+		opt(&p.PaginatorOptions)
 	}
 	return p
 }
 
+type PaginatorOptions struct {
+	DefaultSize uint32
+	MaxSize     uint32
+	Sort        []string
+	ColumnFunc  func(string) string
+}
+
 // Paginator is a helper to paginate results.
 type Paginator[T any] struct {
-	defaultSize uint32
-	maxSize     uint32
-	defaultSort []string
-	columnFunc  func(string) string
+	PaginatorOptions
 }
 
 func (p Paginator[T]) getOrder(page *Page) []string {
-	sort := page.GetOrder(p.defaultSort...)
+	sort := page.GetOrder(p.Sort...)
 	list := make([]string, len(sort))
 	for i, s := range sort {
-		if p.columnFunc != nil {
-			s.Column = p.columnFunc(s.Column)
+		if p.ColumnFunc != nil {
+			s.Column = p.ColumnFunc(s.Column)
 		}
 		list[i] = s.String()
 	}
@@ -205,19 +214,19 @@ func (p Paginator[T]) getOrder(page *Page) []string {
 func (p Paginator[T]) PrepareQuery(q sq.SelectBuilder, page *Page) ([]T, sq.SelectBuilder) {
 	if page != nil {
 		if page.Size == 0 {
-			page.Size = p.defaultSize
+			page.Size = p.DefaultSize
 		}
-		if page.Size > p.maxSize {
-			page.Size = p.maxSize
+		if page.Size > p.MaxSize {
+			page.Size = p.MaxSize
 		}
 	}
-	limit := page.Limit()
-	q = q.Limit(page.Limit() + 1).Offset(page.Offset()).OrderBy(p.getOrder(page)...)
+	limit := page.Limit(&p.PaginatorOptions)
+	q = q.Limit(page.Limit(&p.PaginatorOptions) + 1).Offset(page.Offset(&p.PaginatorOptions)).OrderBy(p.getOrder(page)...)
 	return make([]T, 0, limit+1), q
 }
 
 func (p Paginator[T]) PrepareRaw(q string, args []any, page *Page) ([]T, string, []any) {
-	limit, offset := page.Limit(), page.Offset()
+	limit, offset := page.Limit(&p.PaginatorOptions), page.Offset(&p.PaginatorOptions)
 
 	q = q + " ORDER BY " + strings.Join(p.getOrder(page), ", ")
 	q = q + " LIMIT @limit OFFSET @offset"
@@ -240,13 +249,13 @@ func (p Paginator[T]) PrepareRaw(q string, args []any, page *Page) ([]T, string,
 // - it removes the last element, returning n elements
 // - it sets more to true in the page object
 func (p Paginator[T]) PrepareResult(result []T, page *Page) []T {
-	limit := int(page.Limit())
+	limit := int(page.Limit(&p.PaginatorOptions))
 	page.More = len(result) > limit
 	if page.More {
 		result = result[:limit]
 	}
 
 	page.Size = uint32(limit)
-	page.Page = 1 + uint32(page.Offset())/uint32(limit)
+	page.Page = 1 + uint32(page.Offset(&p.PaginatorOptions))/uint32(limit)
 	return result
 }
