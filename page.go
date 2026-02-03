@@ -135,54 +135,24 @@ func (p *Page) Offset(o *PaginatorOptions) uint64 {
 }
 
 func (p *Page) Limit(o *PaginatorOptions) uint64 {
-	n := uint64(DefaultPageSize)
-	if o != nil && o.DefaultSize != 0 {
-		n = uint64(o.DefaultSize)
-	}
+	n, maxSize := o.getDefaults()
 	if p != nil && p.Size != 0 {
 		n = uint64(p.Size)
 	}
-	if n > MaxPageSize {
-		n = MaxPageSize
+	if n > uint64(maxSize) {
+		n = maxSize
 	}
 	return n
 }
 
-// PaginatorOption is a function that sets an option on a paginator.
-type PaginatorOption func(*PaginatorOptions)
-
-// WithDefaultSize sets the default page size.
-func WithDefaultSize(size uint32) PaginatorOption {
-	return func(p *PaginatorOptions) { p.DefaultSize = size }
-}
-
-// WithMaxSize sets the maximum page size.
-func WithMaxSize(size uint32) PaginatorOption {
-	return func(p *PaginatorOptions) { p.MaxSize = size }
-}
-
-// WithSort sets the default sort order.
-func WithSort(sort ...string) PaginatorOption {
-	return func(p *PaginatorOptions) { p.Sort = sort }
-}
-
-// WithColumnFunc sets a function to transform column names.
-func WithColumnFunc(f func(string) string) PaginatorOption {
-	return func(p *PaginatorOptions) { p.ColumnFunc = f }
-}
-
 // NewPaginator creates a new paginator with the given options.
 // Default page size is 10 and max size is 50.
-func NewPaginator[T any](options ...PaginatorOption) Paginator[T] {
-	p := Paginator[T]{
-		PaginatorOptions: PaginatorOptions{
-			DefaultSize: DefaultPageSize,
-			MaxSize:     MaxPageSize,
-		},
+func NewPaginator[T any](options *PaginatorOptions) Paginator[T] {
+	p := Paginator[T]{}
+	if options == nil {
+		return p
 	}
-	for _, opt := range options {
-		opt(&p.PaginatorOptions)
-	}
+	p.PaginatorOptions = *options
 	return p
 }
 
@@ -191,6 +161,21 @@ type PaginatorOptions struct {
 	MaxSize     uint32
 	Sort        []string
 	ColumnFunc  func(string) string
+}
+
+func (o *PaginatorOptions) getDefaults() (defaultSize, maxSize uint64) {
+	defaultSize = DefaultPageSize
+	maxSize = MaxPageSize
+	if o == nil {
+		return
+	}
+	if o.DefaultSize != 0 {
+		defaultSize = uint64(o.DefaultSize)
+	}
+	if o.MaxSize != 0 {
+		maxSize = uint64(o.MaxSize)
+	}
+	return
 }
 
 // Paginator is a helper to paginate results.

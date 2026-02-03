@@ -12,21 +12,17 @@ import (
 type T struct{}
 
 func TestPagination(t *testing.T) {
-	const (
-		DefaultSize = 2
-		MaxSize     = 5
-		Sort        = "ID"
-	)
-	paginator := pgkit.NewPaginator[T](
-		pgkit.WithColumnFunc(strings.ToLower),
-		pgkit.WithDefaultSize(DefaultSize),
-		pgkit.WithMaxSize(MaxSize),
-		pgkit.WithSort(Sort),
-	)
+	o := &pgkit.PaginatorOptions{
+		ColumnFunc:  strings.ToLower,
+		DefaultSize: 2,
+		MaxSize:     5,
+		Sort:        []string{"ID"},
+	}
+	paginator := pgkit.NewPaginator[T](o)
 	page := pgkit.NewPage(0, 0)
 	result, query := paginator.PrepareQuery(sq.Select("*").From("t"), page)
 	require.Len(t, result, 0)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize}, page)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: o.MaxSize}, page)
 
 	sql, args, err := query.ToSql()
 	require.NoError(t, err)
@@ -35,19 +31,19 @@ func TestPagination(t *testing.T) {
 
 	result = paginator.PrepareResult(make([]T, 0), page)
 	require.Len(t, result, 0)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize}, page)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: o.MaxSize}, page)
 
-	result = paginator.PrepareResult(make([]T, MaxSize), page)
-	require.Len(t, result, MaxSize)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize}, page)
+	result = paginator.PrepareResult(make([]T, o.MaxSize), page)
+	require.Len(t, result, int(o.MaxSize))
+	require.Equal(t, &pgkit.Page{Page: 1, Size: o.MaxSize}, page)
 
-	result = paginator.PrepareResult(make([]T, MaxSize+2), page)
-	require.Len(t, result, MaxSize)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize, More: true}, page)
+	result = paginator.PrepareResult(make([]T, o.MaxSize+2), page)
+	require.Len(t, result, int(o.MaxSize))
+	require.Equal(t, &pgkit.Page{Page: 1, Size: o.MaxSize, More: true}, page)
 }
 
 func TestInvalidSort(t *testing.T) {
-	paginator := pgkit.NewPaginator[T]()
+	paginator := pgkit.NewPaginator[T](nil)
 	page := pgkit.NewPage(0, 0)
 	page.Sort = []pgkit.Sort{
 		{Column: "ID; DROP TABLE users;", Order: pgkit.Asc},
@@ -63,7 +59,7 @@ func TestInvalidSort(t *testing.T) {
 }
 
 func TestPageColumnInjection(t *testing.T) {
-	paginator := pgkit.NewPaginator[T]()
+	paginator := pgkit.NewPaginator[T](nil)
 	page := pgkit.NewPage(0, 0)
 	page.Column = "id; DROP TABLE users;--"
 
@@ -76,7 +72,7 @@ func TestPageColumnInjection(t *testing.T) {
 }
 
 func TestPageColumnSpaces(t *testing.T) {
-	paginator := pgkit.NewPaginator[T]()
+	paginator := pgkit.NewPaginator[T](nil)
 	page := pgkit.NewPage(0, 0)
 	page.Column = "id, name"
 
@@ -89,7 +85,7 @@ func TestPageColumnSpaces(t *testing.T) {
 }
 
 func TestSortOrderInjection(t *testing.T) {
-	paginator := pgkit.NewPaginator[T]()
+	paginator := pgkit.NewPaginator[T](nil)
 	page := pgkit.NewPage(0, 0)
 	page.Sort = []pgkit.Sort{
 		{Column: "id", Order: pgkit.Order("DESC; DROP TABLE users;--")},
