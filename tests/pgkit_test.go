@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -67,7 +66,7 @@ func TestSugarInsertAndSelectRows(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, accounts, 1)
-	assert.True(t, accounts[0].ID != 0)
+	assert.NotZero(t, accounts[0].ID)
 	assert.Equal(t, "peter", accounts[0].Name)
 }
 
@@ -90,7 +89,7 @@ func TestInsertAndSelectRows(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, accounts, 1)
-	assert.True(t, accounts[0].ID != 0)
+	assert.NotZero(t, accounts[0].ID)
 	assert.Equal(t, "peter", accounts[0].Name)
 }
 
@@ -113,7 +112,7 @@ func TestSugarInsertAndSelectRecords(t *testing.T) {
 	err = DB.Query.GetAll(context.Background(), q2, &accounts)
 	assert.NoError(t, err)
 	assert.Len(t, accounts, 1)
-	assert.True(t, accounts[0].ID != 0)
+	assert.NotZero(t, accounts[0].ID)
 	assert.Equal(t, "joe", accounts[0].Name)
 
 	// Select one -- into object
@@ -121,7 +120,7 @@ func TestSugarInsertAndSelectRecords(t *testing.T) {
 	err = DB.Query.GetOne(context.Background(), q2, account)
 	assert.NoError(t, err)
 	assert.Len(t, accounts, 1)
-	assert.True(t, accounts[0].ID != 0)
+	assert.NotZero(t, accounts[0].ID)
 	assert.Equal(t, "joe", accounts[0].Name)
 
 	// Select one -- into struct value
@@ -129,7 +128,7 @@ func TestSugarInsertAndSelectRecords(t *testing.T) {
 	err = DB.Query.GetOne(context.Background(), q2, &accountv)
 	assert.NoError(t, err)
 	assert.Len(t, accounts, 1)
-	assert.True(t, accounts[0].ID != 0)
+	assert.NotZero(t, accounts[0].ID)
 	assert.Equal(t, "joe", accounts[0].Name)
 }
 
@@ -160,7 +159,7 @@ func TestSugarInsertAndSelectRecordsReturningID(t *testing.T) {
 
 	err := DB.Query.QueryRow(context.Background(), DB.SQL.InsertRecord(rec).Suffix(`RETURNING "id"`)).Scan(&rec.ID)
 	assert.NoError(t, err)
-	assert.True(t, rec.ID > 0)
+	assert.NotZero(t, rec.ID)
 
 	// Select one -- into object
 	account := &Account{}
@@ -205,7 +204,7 @@ func TestInsertAndSelectRecords(t *testing.T) {
 	err = DB.Query.Scan.ScanOne(a, rows)
 	assert.NoError(t, err)
 
-	assert.True(t, a.ID != 0)
+	assert.NotZero(t, a.ID)
 	assert.Equal(t, "joe", a.Name)
 	assert.Equal(t, true, a.Disabled)
 
@@ -224,8 +223,7 @@ func TestSugarQueryWithNoResults(t *testing.T) {
 
 	var account interface{}
 	err := DB.Query.GetOne(context.Background(), q, &account)
-	assert.True(t, errors.Is(err, pgkit.ErrNoRows))
-	assert.True(t, errors.Is(err, pgx.ErrNoRows))
+	assert.ErrorIs(t, err, pgkit.ErrNoRows)
 }
 
 func TestQueryWithNoResults(t *testing.T) {
@@ -257,7 +255,7 @@ func TestQueryWithNoResults(t *testing.T) {
 	{
 		var a *Account
 		err = DB.Query.Scan.Get(context.Background(), DB.Conn, a, selectq, args...)
-		assert.True(t, errors.Is(err, pgx.ErrNoRows))
+		assert.ErrorIs(t, err, pgkit.ErrNoRows)
 	}
 }
 
@@ -354,7 +352,7 @@ func TestRowsWithBigInt(t *testing.T) {
 		err = DB.Query.GetOne(context.Background(), q2, &sout)
 		assert.NoError(t, err)
 		assert.Equal(t, "count", sout.Key)
-		assert.True(t, sout.Num.Int64() == 2)
+		assert.Equal(t, int64(2), sout.Num.Int64())
 		assert.True(t, sout.Num.IsValid)
 
 		assert.False(t, sout.Rating.IsValid)
@@ -375,7 +373,7 @@ func TestRowsWithBigInt(t *testing.T) {
 		err = DB.Query.GetOne(context.Background(), q2, &sout)
 		assert.NoError(t, err)
 		assert.Equal(t, "count2", sout.Key)
-		assert.True(t, sout.Num.String() == "12323942398472837489234")
+		assert.Equal(t, "12323942398472837489234", sout.Num.String())
 		assert.True(t, sout.Num.IsValid)
 
 		assert.False(t, sout.Rating.IsValid)
@@ -399,9 +397,9 @@ func TestRowsWithBigInt(t *testing.T) {
 		err = DB.Query.GetOne(context.Background(), q2, &sout)
 		assert.NoError(t, err)
 		assert.Equal(t, "count3", sout.Key)
-		assert.True(t, sout.Num.String() == "44")
+		assert.Equal(t, "44", sout.Num.String())
 		assert.True(t, sout.Num.IsValid)
-		assert.True(t, sout.Rating.String() == "5")
+		assert.Equal(t, "5", sout.Rating.String())
 		assert.True(t, sout.Rating.IsValid)
 	}
 
@@ -463,7 +461,7 @@ func TestSugarUpdateRecord(t *testing.T) {
 	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), accountResp)
 	assert.NoError(t, err)
 	assert.Equal(t, "julia", accountResp.Name)
-	assert.True(t, accountResp.ID != 0)
+	assert.NotZero(t, accountResp.ID)
 
 	// Update
 	accountResp.Name = "JUL14"
@@ -475,9 +473,9 @@ func TestSugarUpdateRecord(t *testing.T) {
 	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), accountResp2)
 	assert.NoError(t, err)
 	assert.Equal(t, "JUL14", accountResp.Name)
-	assert.True(t, accountResp2.ID != 0)
-	assert.True(t, accountResp2.ID == accountResp.ID)
-	assert.True(t, accountResp2.CreatedAt.Equal(accountResp.CreatedAt))
+	assert.NotZero(t, accountResp2.ID)
+	assert.Equal(t, accountResp2.ID, accountResp.ID)
+	assert.Equal(t, accountResp2.CreatedAt, accountResp.CreatedAt)
 }
 
 func TestSugarUpdateRecordColumns(t *testing.T) {
@@ -493,7 +491,7 @@ func TestSugarUpdateRecordColumns(t *testing.T) {
 	err = DB.Query.GetOne(context.Background(), DB.SQL.Select("*").From("accounts"), accountResp)
 	assert.NoError(t, err)
 	assert.Equal(t, "peter", accountResp.Name)
-	assert.True(t, accountResp.ID != 0)
+	assert.NotZero(t, accountResp.ID)
 	assert.False(t, accountResp.Disabled)
 
 	// Update
@@ -508,8 +506,8 @@ func TestSugarUpdateRecordColumns(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "peter", accountResp2.Name) // should not have changed, expect as previous was recorded
 	assert.True(t, accountResp2.Disabled)
-	assert.True(t, accountResp2.ID != 0)
-	assert.True(t, accountResp2.ID == accountResp.ID)
+	assert.NotZero(t, accountResp2.ID)
+	assert.Equal(t, accountResp2.ID, accountResp.ID)
 }
 
 func TestTransactionBasics(t *testing.T) {
@@ -542,8 +540,8 @@ func TestTransactionBasics(t *testing.T) {
 		err := DB.Query.GetAll(context.Background(), q, &accounts)
 		require.NoError(t, err)
 		assert.Len(t, accounts, 2)
-		assert.True(t, accounts[0].Name == "mario")
-		assert.True(t, accounts[1].Name == "peter")
+		assert.Equal(t, "mario", accounts[0].Name)
+		assert.Equal(t, "peter", accounts[1].Name)
 	}
 
 	// Insert some rows -- but rollback
@@ -609,8 +607,8 @@ func TestSugarTransaction(t *testing.T) {
 		err := DB.Query.GetAll(context.Background(), q, &accounts)
 		require.NoError(t, err)
 		assert.Len(t, accounts, 2)
-		assert.True(t, accounts[0].Name == "mario")
-		assert.True(t, accounts[1].Name == "peter")
+		assert.Equal(t, "mario", accounts[0].Name)
+		assert.Equal(t, "peter", accounts[1].Name)
 	}
 }
 
