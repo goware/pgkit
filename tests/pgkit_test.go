@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -198,8 +197,8 @@ func TestInsertAndSelectRecords(t *testing.T) {
 
 	// Build select query
 	rows, err := DB.Conn.Query(context.Background(), selectq, args...)
-	defer rows.Close()
 	assert.NoError(t, err)
+	defer rows.Close()
 
 	// Scan result into *Account object
 	a := &Account{}
@@ -245,8 +244,8 @@ func TestQueryWithNoResults(t *testing.T) {
 	// or, with more verbose method:
 	{
 		rows, err := DB.Conn.Query(context.Background(), selectq, args...)
-		defer rows.Close()
 		assert.NoError(t, err)
+		defer rows.Close()
 
 		err = DB.Query.Scan.ScanAll(&accounts, rows)
 
@@ -321,7 +320,7 @@ func TestRecordsWithJSONStruct(t *testing.T) {
 	// Assert record mapping for nested jsonb struct
 	cols, _, err := pgkit.Map(article)
 	assert.NoError(t, err)
-	sort.Sort(sort.StringSlice(cols))
+	sort.Strings(cols)
 	assert.Equal(t, []string{"alias", "author", "content"}, cols)
 
 	// Insert record
@@ -478,7 +477,7 @@ func TestSugarUpdateRecord(t *testing.T) {
 	assert.Equal(t, "JUL14", accountResp.Name)
 	assert.True(t, accountResp2.ID != 0)
 	assert.True(t, accountResp2.ID == accountResp.ID)
-	assert.True(t, accountResp2.CreatedAt == accountResp.CreatedAt)
+	assert.True(t, accountResp2.CreatedAt.Equal(accountResp.CreatedAt))
 }
 
 func TestSugarUpdateRecordColumns(t *testing.T) {
@@ -517,7 +516,7 @@ func TestTransactionBasics(t *testing.T) {
 	truncateTable(t, "accounts")
 
 	// Insert some rows + commit
-	pgx.BeginFunc(context.Background(), DB.Conn, func(tx pgx.Tx) error {
+	err := pgx.BeginFunc(context.Background(), DB.Conn, func(tx pgx.Tx) error {
 		// Insert 1
 		insertq, args, err := DB.SQL.Insert("accounts").Columns("name", "disabled").Values("peter", false).ToSql()
 		require.NoError(t, err)
@@ -534,6 +533,7 @@ func TestTransactionBasics(t *testing.T) {
 
 		return nil
 	})
+	require.NoError(t, err)
 
 	// Assert above records have been made
 	{
@@ -547,7 +547,7 @@ func TestTransactionBasics(t *testing.T) {
 	}
 
 	// Insert some rows -- but rollback
-	pgx.BeginFunc(context.Background(), DB.Conn, func(tx pgx.Tx) error {
+	err = pgx.BeginFunc(context.Background(), DB.Conn, func(tx pgx.Tx) error {
 		// Insert 1
 		insertq, args, err := DB.SQL.Insert("accounts").Columns("name", "disabled").Values("zelda", false).ToSql()
 		require.NoError(t, err)
@@ -564,6 +564,7 @@ func TestTransactionBasics(t *testing.T) {
 
 		return fmt.Errorf("something bad happend")
 	})
+	require.Error(t, err)
 
 	// Assert above records were rolled back
 	{
@@ -578,7 +579,7 @@ func TestTransactionBasics(t *testing.T) {
 func TestSugarTransaction(t *testing.T) {
 	truncateTable(t, "accounts")
 
-	pgx.BeginFunc(context.Background(), DB.Conn, func(tx pgx.Tx) error {
+	err := pgx.BeginFunc(context.Background(), DB.Conn, func(tx pgx.Tx) error {
 		rec1 := &Account{
 			Name:     "peter",
 			Disabled: false,
@@ -599,6 +600,7 @@ func TestSugarTransaction(t *testing.T) {
 
 		return nil
 	})
+	require.NoError(t, err)
 
 	// Assert above records have been made
 	{
@@ -703,7 +705,8 @@ func TestBatchQuery(t *testing.T) {
 		require.NoError(t, err)
 		accounts = append(accounts, &account)
 	}
-	br.Close()
+	err := br.Close()
+	require.NoError(t, err)
 
 	require.Len(t, accounts, len(names))
 	for i := 0; i < len(names); i++ {
@@ -727,7 +730,10 @@ func TestSugarBatchQuery(t *testing.T) {
 	batchResults, batchLen, err := DB.Query.BatchQuery(ctx, queries)
 	require.NoError(t, err)
 
-	defer batchResults.Close()
+	defer func() {
+		err := batchResults.Close()
+		require.NoError(t, err)
+	}()
 
 	var accounts []*Account
 
@@ -826,6 +832,7 @@ func TestSlogQueryTracerWithValuesReplaced(t *testing.T) {
 		ConnMaxLifetime: "1h",
 		Tracer:          tracer.NewSQLTracer(slogTracer),
 	})
+	require.NoError(t, err)
 
 	defer dbClient.Conn.Close()
 
@@ -924,6 +931,7 @@ func TestSlogQueryTracerUsingContextToInit(t *testing.T) {
 		ConnMaxLifetime: "1h",
 		Tracer:          tracer.NewSQLTracer(slogTracer),
 	})
+	require.NoError(t, err)
 
 	defer dbClient.Conn.Close()
 
@@ -981,6 +989,7 @@ func TestSlogQueryTracerWithErr(t *testing.T) {
 		ConnMaxLifetime: "1h",
 		Tracer:          tracer.NewSQLTracer(slogTracer),
 	})
+	require.NoError(t, err)
 
 	defer dbClient.Conn.Close()
 
@@ -1029,6 +1038,7 @@ func TestSlogSlowQuery(t *testing.T) {
 		ConnMaxLifetime: "1h",
 		Tracer:          tracer.NewSQLTracer(slogTracer),
 	})
+	require.NoError(t, err)
 
 	defer dbClient.Conn.Close()
 
@@ -1065,6 +1075,7 @@ func TestSlogTracerBatchQuery(t *testing.T) {
 		ConnMaxLifetime: "1h",
 		Tracer:          tracer.NewSQLTracer(slogTracer),
 	})
+	require.NoError(t, err)
 
 	defer dbClient.Conn.Close()
 
@@ -1147,10 +1158,4 @@ func connectToDb(conf pgkit.Config) (*pgkit.DB, error) {
 		log.Fatal(fmt.Errorf("failed to ping dbClient: %w", err))
 	}
 	return dbClient, err
-}
-
-func hexEncode(b []byte) string {
-	enc := make([]byte, len(b)*2)
-	hex.Encode(enc[0:], b)
-	return string(enc)
 }
