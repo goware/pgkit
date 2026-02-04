@@ -136,13 +136,8 @@ func TestPaginationEdgeCases(t *testing.T) {
 	require.Equal(t, "SELECT * FROM t LIMIT 11 OFFSET 0", sql3)
 
 	// Test case 4: options with defaults, struct assignment
-	paginator4 := pgkit.Paginator[T]{
-		pgkit.PaginatorOptions{
-			DefaultSize: 5,
-			MaxSize:     20,
-		},
-	}
-	page4 := &pgkit.Page{Page: 0, Size: 0}
+	paginator4 := pgkit.Paginator[T]{pgkit.PaginatorOptions{DefaultSize: 5, MaxSize: 20}}
+	page4 := &pgkit.Page{}
 	result4, query4 := paginator4.PrepareQuery(sq.Select("*").From("t"), page4)
 	require.Len(t, result4, 0)
 	require.Equal(t, &pgkit.Page{Page: 1, Size: 5}, page4)
