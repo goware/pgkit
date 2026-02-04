@@ -146,7 +146,6 @@ func (p *Page) Limit(o *PaginatorOptions) uint64 {
 }
 
 // NewPaginator creates a new paginator with the given options.
-// Default page size is 10 and max size is 50.
 // If MaxSize is less than DefaultSize, MaxSize is set to DefaultSize.
 func NewPaginator[T any](options *PaginatorOptions) Paginator[T] {
 	p := Paginator[T]{}
@@ -166,11 +165,21 @@ func NewPaginator[T any](options *PaginatorOptions) Paginator[T] {
 	return p
 }
 
+// PaginatorOptions are the options for the paginator.
 type PaginatorOptions struct {
+	// DefaultSize is the default number of rows per page.
+	// If zero, DefaultPageSize is used.
 	DefaultSize uint32
-	MaxSize     uint32
-	Sort        []string
-	ColumnFunc  func(string) string
+
+	// MaxSize is the maximum number of rows per page.
+	// If zero, MaxPageSize is used. If less than DefaultSize, it is set to DefaultSize.
+	MaxSize uint32
+
+	// Sort is the default sort order.
+	Sort []string
+
+	// ColumnFunc is a transformation applied to  column names.
+	ColumnFunc func(string) string
 }
 
 func (o *PaginatorOptions) getDefaults() (defaultSize, maxSize uint64) {
@@ -185,7 +194,7 @@ func (o *PaginatorOptions) getDefaults() (defaultSize, maxSize uint64) {
 	if o.MaxSize != 0 {
 		maxSize = uint64(o.MaxSize)
 	}
-	return min(defaultSize, maxSize), maxSize
+	return min(defaultSize, maxSize), max(defaultSize, maxSize)
 }
 
 // Paginator is a helper to paginate results.
