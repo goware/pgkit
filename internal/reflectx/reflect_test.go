@@ -57,7 +57,7 @@ func TestBasicEmbedded(t *testing.T) {
 	z.A = 1
 	z.B = 2
 	z.C = 4
-	z.Bar.Foo.A = 3
+	z.Foo.A = 3
 
 	zv := reflect.ValueOf(z)
 	fields := m.TypeMap(reflect.TypeOf(z))
@@ -75,12 +75,12 @@ func TestBasicEmbedded(t *testing.T) {
 		t.Errorf("Expecting %d, got %d", z.A, ival(v))
 	}
 	v = m.FieldByName(zv, "Bar.B")
-	if ival(v) != z.Bar.B {
-		t.Errorf("Expecting %d, got %d", z.Bar.B, ival(v))
+	if ival(v) != z.B {
+		t.Errorf("Expecting %d, got %d", z.B, ival(v))
 	}
 	v = m.FieldByName(zv, "Bar.A")
-	if ival(v) != z.Bar.Foo.A {
-		t.Errorf("Expecting %d, got %d", z.Bar.Foo.A, ival(v))
+	if ival(v) != z.Foo.A {
+		t.Errorf("Expecting %d, got %d", z.Foo.A, ival(v))
 	}
 	v = m.FieldByName(zv, "Bar.C")
 	if _, ok := v.Interface().(int); ok {
@@ -127,7 +127,7 @@ func TestBasicEmbeddedWithTags(t *testing.T) {
 	z := Baz{}
 	z.A = 1
 	z.B = 2
-	z.Bar.Foo.A = 3
+	z.Foo.A = 3
 
 	zv := reflect.ValueOf(z)
 	fields := m.TypeMap(reflect.TypeOf(z))
@@ -245,12 +245,12 @@ func TestNestedStruct(t *testing.T) {
 		t.Errorf("Expecting field to not exist")
 	}
 	v = m.FieldByName(pv, "asset.title")
-	if v.Interface().(string) != post.Asset.Title {
-		t.Errorf("Expecting %s, got %s", post.Asset.Title, v.Interface().(string))
+	if v.Interface().(string) != post.Title {
+		t.Errorf("Expecting %s, got %s", post.Title, v.Interface().(string))
 	}
 	v = m.FieldByName(pv, "asset.details.active")
-	if v.Interface().(bool) != post.Asset.Details.Active {
-		t.Errorf("Expecting %v, got %v", post.Asset.Details.Active, v.Interface().(bool))
+	if v.Interface().(bool) != post.Details.Active {
+		t.Errorf("Expecting %v, got %v", post.Details.Active, v.Interface().(bool))
 	}
 }
 
@@ -317,7 +317,7 @@ func TestFieldsEmbedded(t *testing.T) {
 	pp := PP{}
 	pp.Person.Name = "Peter"
 	pp.Place.Name = "Toronto"
-	pp.Article.Title = "Best city ever"
+	pp.Title = "Best city ever"
 
 	fields := m.TypeMap(reflect.TypeOf(pp))
 	// for i, f := range fields {
@@ -337,8 +337,8 @@ func TestFieldsEmbedded(t *testing.T) {
 	}
 
 	v = m.FieldByName(ppv, "title")
-	if v.Interface().(string) != pp.Article.Title {
-		t.Errorf("Expecting %s, got %s", pp.Article.Title, v.Interface().(string))
+	if v.Interface().(string) != pp.Title {
+		t.Errorf("Expecting %s, got %s", pp.Title, v.Interface().(string))
 	}
 
 	fi := fields.GetByPath("person")
@@ -355,6 +355,7 @@ func TestFieldsEmbedded(t *testing.T) {
 	fi = fields.GetByPath("person.name")
 	if fi == nil {
 		t.Errorf("Expecting person.name to exist")
+		return
 	}
 	if fi.Path != "person.name" {
 		t.Errorf("Expecting %s, got %s", "person.name", fi.Path)
@@ -366,6 +367,7 @@ func TestFieldsEmbedded(t *testing.T) {
 	fi = fields.GetByTraversal([]int{1, 0})
 	if fi == nil {
 		t.Errorf("Expecting traveral to exist")
+		return
 	}
 	if fi.Path != "name" {
 		t.Errorf("Expecting %s, got %s", "name", fi.Path)
@@ -374,6 +376,7 @@ func TestFieldsEmbedded(t *testing.T) {
 	fi = fields.GetByTraversal([]int{2})
 	if fi == nil {
 		t.Errorf("Expecting traversal to exist")
+		return
 	}
 	if _, ok := fi.Options["required"]; !ok {
 		t.Errorf("Expecting required option to be set")
@@ -404,8 +407,8 @@ func TestPtrFields(t *testing.T) {
 	}
 
 	v := m.FieldByName(pv, "asset.title")
-	if v.Interface().(string) != post.Asset.Title {
-		t.Errorf("Expecting %s, got %s", post.Asset.Title, v.Interface().(string))
+	if v.Interface().(string) != post.Title {
+		t.Errorf("Expecting %s, got %s", post.Title, v.Interface().(string))
 	}
 	v = m.FieldByName(pv, "author")
 	if v.Interface().(string) != post.Author {
@@ -642,7 +645,7 @@ func TestMapperMethodsByName(t *testing.T) {
 		A0 *B `db:"A0"`
 		B  `db:"A1"`
 		A2 int
-		a3 int
+		a3 int //nolint
 	}
 
 	val := &A{
@@ -846,11 +849,9 @@ func TestMustBe(t *testing.T) {
 		if r := recover(); r != nil {
 			valueErr, ok := r.(*reflect.ValueError)
 			if !ok {
-				t.Errorf("unexpected Method: %s", valueErr.Method)
+				t.Errorf("unexpected Type: %T", r)
 				t.Error("expected panic with *reflect.ValueError")
 				return
-			}
-			if valueErr.Method != "github.com/jmoiron/sqlx/reflectx.TestMustBe" {
 			}
 			if valueErr.Kind != reflect.String {
 				t.Errorf("unexpected Kind: %s", valueErr.Kind)
