@@ -175,7 +175,7 @@ func (o *PaginatorOptions) getDefaults() (defaultSize, maxSize uint64) {
 	if o.MaxSize != 0 {
 		maxSize = uint64(o.MaxSize)
 	}
-	return
+	return min(defaultSize, maxSize), maxSize
 }
 
 // Paginator is a helper to paginate results.
