@@ -100,3 +100,54 @@ func TestSortOrderInjection(t *testing.T) {
 	require.Equal(t, "SELECT * FROM t ORDER BY \"id\" ASC, \"name\" DESC, \"created_at\" ASC LIMIT 11 OFFSET 0", sql)
 	require.Empty(t, args)
 }
+
+func TestPaginationEdgeCases(t *testing.T) {
+	// Test case 1: nil options, NewPage with zeros
+	paginator1 := pgkit.NewPaginator[T](nil)
+	page1 := pgkit.NewPage(0, 0)
+	result1, query1 := paginator1.PrepareQuery(sq.Select("*").From("t"), page1)
+	require.Len(t, result1, 0)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: 10}, page1)
+
+	sql1, _, err1 := query1.ToSql()
+	require.NoError(t, err1)
+	require.Equal(t, "SELECT * FROM t LIMIT 11 OFFSET 0", sql1)
+
+	// Test case 2: nil options, empty struct assignment
+	paginator2 := pgkit.NewPaginator[T](nil)
+	page2 := &pgkit.Page{}
+	result2, query2 := paginator2.PrepareQuery(sq.Select("*").From("t"), page2)
+	require.Len(t, result2, 0)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: 10}, page2)
+
+	sql2, _, err2 := query2.ToSql()
+	require.NoError(t, err2)
+	require.Equal(t, "SELECT * FROM t LIMIT 11 OFFSET 0", sql2)
+
+	// Test case 3: empty options, NewPage
+	paginator3 := pgkit.NewPaginator[T](&pgkit.PaginatorOptions{})
+	page3 := pgkit.NewPage(0, 0)
+	result3, query3 := paginator3.PrepareQuery(sq.Select("*").From("t"), page3)
+	require.Len(t, result3, 0)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: 10}, page3)
+
+	sql3, _, err3 := query3.ToSql()
+	require.NoError(t, err3)
+	require.Equal(t, "SELECT * FROM t LIMIT 11 OFFSET 0", sql3)
+
+	// Test case 4: options with defaults, struct assignment
+	paginator4 := pgkit.Paginator[T]{
+		pgkit.PaginatorOptions{
+			DefaultSize: 5,
+			MaxSize:     20,
+		},
+	}
+	page4 := &pgkit.Page{Page: 0, Size: 0}
+	result4, query4 := paginator4.PrepareQuery(sq.Select("*").From("t"), page4)
+	require.Len(t, result4, 0)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: 5}, page4)
+
+	sql4, _, err4 := query4.ToSql()
+	require.NoError(t, err4)
+	require.Equal(t, "SELECT * FROM t LIMIT 6 OFFSET 0", sql4)
+}

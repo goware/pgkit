@@ -150,7 +150,13 @@ func (p *Page) Limit(o *PaginatorOptions) uint64 {
 func NewPaginator[T any](options *PaginatorOptions) Paginator[T] {
 	p := Paginator[T]{}
 	if options == nil {
-		return p
+		options = &PaginatorOptions{}
+	}
+	if options.DefaultSize == 0 {
+		options.DefaultSize = DefaultPageSize
+	}
+	if options.MaxSize == 0 {
+		options.MaxSize = MaxPageSize
 	}
 	p.PaginatorOptions = *options
 	return p
@@ -197,14 +203,19 @@ func (p Paginator[T]) getOrder(page *Page) []string {
 
 // PrepareQuery adds pagination to the query. It sets the number of max rows to limit+1.
 func (p Paginator[T]) PrepareQuery(q sq.SelectBuilder, page *Page) ([]T, sq.SelectBuilder) {
-	if page != nil {
-		if page.Size == 0 {
-			page.Size = p.DefaultSize
-		}
-		if page.Size > p.MaxSize {
-			page.Size = p.MaxSize
-		}
+	if page == nil {
+		page = &Page{}
 	}
+	if page.Page == 0 {
+		page.Page = 1
+	}
+	if page.Size == 0 {
+		page.Size = p.DefaultSize
+	}
+	if p.MaxSize != 0 && page.Size > p.MaxSize {
+		page.Size = p.MaxSize
+	}
+
 	limit := page.Limit(&p.PaginatorOptions)
 	q = q.Limit(page.Limit(&p.PaginatorOptions) + 1).Offset(page.Offset(&p.PaginatorOptions)).OrderBy(p.getOrder(page)...)
 	return make([]T, 0, limit+1), q
