@@ -147,6 +147,7 @@ func (p *Page) Limit(o *PaginatorOptions) uint64 {
 
 // NewPaginator creates a new paginator with the given options.
 // Default page size is 10 and max size is 50.
+// If MaxSize is less than DefaultSize, MaxSize is set to DefaultSize.
 func NewPaginator[T any](options *PaginatorOptions) Paginator[T] {
 	p := Paginator[T]{}
 	if options == nil {
@@ -157,6 +158,9 @@ func NewPaginator[T any](options *PaginatorOptions) Paginator[T] {
 	}
 	if options.MaxSize == 0 {
 		options.MaxSize = MaxPageSize
+	}
+	if options.MaxSize < options.DefaultSize {
+		options.MaxSize = options.DefaultSize
 	}
 	p.PaginatorOptions = *options
 	return p
