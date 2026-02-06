@@ -12,18 +12,21 @@ import (
 type T struct{}
 
 func TestPagination(t *testing.T) {
-	const _MaxSize = 5
-	options := []pgkit.PaginatorOption{
+	const (
+		DefaultSize = 2
+		MaxSize     = 5
+		Sort        = "ID"
+	)
+	paginator := pgkit.NewPaginator[T](
 		pgkit.WithColumnFunc(strings.ToLower),
-		pgkit.WithDefaultSize(2),
-		pgkit.WithMaxSize(_MaxSize),
-		pgkit.WithSort("ID"),
-	}
-	paginator := pgkit.NewPaginator[T](options...)
+		pgkit.WithDefaultSize(DefaultSize),
+		pgkit.WithMaxSize(MaxSize),
+		pgkit.WithSort(Sort),
+	)
 	page := pgkit.NewPage(0, 0)
 	result, query := paginator.PrepareQuery(sq.Select("*").From("t"), page)
 	require.Len(t, result, 0)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: _MaxSize}, page)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize}, page)
 
 	sql, args, err := query.ToSql()
 	require.NoError(t, err)
@@ -32,19 +35,19 @@ func TestPagination(t *testing.T) {
 
 	result = paginator.PrepareResult(make([]T, 0), page)
 	require.Len(t, result, 0)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: _MaxSize}, page)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize}, page)
 
-	result = paginator.PrepareResult(make([]T, _MaxSize), page)
-	require.Len(t, result, int(_MaxSize))
-	require.Equal(t, &pgkit.Page{Page: 1, Size: _MaxSize}, page)
+	result = paginator.PrepareResult(make([]T, MaxSize), page)
+	require.Len(t, result, int(MaxSize))
+	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize}, page)
 
-	result = paginator.PrepareResult(make([]T, _MaxSize+2), page)
-	require.Len(t, result, int(_MaxSize))
-	require.Equal(t, &pgkit.Page{Page: 1, Size: _MaxSize, More: true}, page)
+	result = paginator.PrepareResult(make([]T, MaxSize+2), page)
+	require.Len(t, result, int(MaxSize))
+	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize, More: true}, page)
 }
 
 func TestInvalidSort(t *testing.T) {
-	paginator := pgkit.NewPaginator[T](nil)
+	paginator := pgkit.NewPaginator[T]()
 	page := pgkit.NewPage(0, 0)
 	page.Sort = []pgkit.Sort{
 		{Column: "ID; DROP TABLE users;", Order: pgkit.Asc},
@@ -60,7 +63,7 @@ func TestInvalidSort(t *testing.T) {
 }
 
 func TestPageColumnInjection(t *testing.T) {
-	paginator := pgkit.NewPaginator[T](nil)
+	paginator := pgkit.NewPaginator[T]()
 	page := pgkit.NewPage(0, 0)
 	page.Column = "id; DROP TABLE users;--"
 
@@ -73,7 +76,7 @@ func TestPageColumnInjection(t *testing.T) {
 }
 
 func TestPageColumnSpaces(t *testing.T) {
-	paginator := pgkit.NewPaginator[T](nil)
+	paginator := pgkit.NewPaginator[T]()
 	page := pgkit.NewPage(0, 0)
 	page.Column = "id, name"
 
@@ -86,7 +89,7 @@ func TestPageColumnSpaces(t *testing.T) {
 }
 
 func TestSortOrderInjection(t *testing.T) {
-	paginator := pgkit.NewPaginator[T](nil)
+	paginator := pgkit.NewPaginator[T]()
 	page := pgkit.NewPage(0, 0)
 	page.Sort = []pgkit.Sort{
 		{Column: "id", Order: pgkit.Order("DESC; DROP TABLE users;--")},
@@ -104,7 +107,7 @@ func TestSortOrderInjection(t *testing.T) {
 
 func TestPaginationEdgeCases(t *testing.T) {
 	// Test case 1: nil options, NewPage with zeros
-	paginator1 := pgkit.NewPaginator[T](nil)
+	paginator1 := pgkit.NewPaginator[T]()
 	page1 := pgkit.NewPage(0, 0)
 	result1, query1 := paginator1.PrepareQuery(sq.Select("*").From("t"), page1)
 	require.Len(t, result1, 0)
@@ -115,7 +118,7 @@ func TestPaginationEdgeCases(t *testing.T) {
 	require.Equal(t, "SELECT * FROM t LIMIT 11 OFFSET 0", sql1)
 
 	// Test case 2: nil options, empty struct assignment
-	paginator2 := pgkit.NewPaginator[T](nil)
+	paginator2 := pgkit.NewPaginator[T]()
 	page2 := &pgkit.Page{}
 	result2, query2 := paginator2.PrepareQuery(sq.Select("*").From("t"), page2)
 	require.Len(t, result2, 0)
