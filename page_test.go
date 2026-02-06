@@ -38,11 +38,11 @@ func TestPagination(t *testing.T) {
 	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize}, page)
 
 	result = paginator.PrepareResult(make([]T, MaxSize), page)
-	require.Len(t, result, int(MaxSize))
+	require.Len(t, result, MaxSize)
 	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize}, page)
 
 	result = paginator.PrepareResult(make([]T, MaxSize+2), page)
-	require.Len(t, result, int(MaxSize))
+	require.Len(t, result, MaxSize)
 	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize, More: true}, page)
 }
 
