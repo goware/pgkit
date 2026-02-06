@@ -87,6 +87,24 @@ func NewPage(size, page uint32, sort ...Sort) *Page {
 	}
 }
 
+func (p *Page) SetDefaults(o *PaginatorOptions) {
+	if o == nil {
+		o = &PaginatorOptions{
+			DefaultSize: DefaultPageSize,
+			MaxSize:     MaxPageSize,
+		}
+	}
+	if p.Size == 0 {
+		p.Size = o.DefaultSize
+	}
+	if p.Size > o.MaxSize {
+		p.Size = o.MaxSize
+	}
+	if p.Page == 0 {
+		p.Page = 1
+	}
+}
+
 func (p *Page) GetOrder(defaultSort ...string) []Sort {
 	// if page has sort, use it
 	if p != nil && len(p.Sort) != 0 {
@@ -152,15 +170,7 @@ func NewPaginator[T any](options *PaginatorOptions) Paginator[T] {
 	if options == nil {
 		options = &PaginatorOptions{}
 	}
-	if options.DefaultSize == 0 {
-		options.DefaultSize = DefaultPageSize
-	}
-	if options.MaxSize == 0 {
-		options.MaxSize = MaxPageSize
-	}
-	if options.MaxSize < options.DefaultSize {
-		options.MaxSize = options.DefaultSize
-	}
+	options.SetDefaults()
 	p.PaginatorOptions = *options
 	return p
 }
@@ -180,6 +190,18 @@ type PaginatorOptions struct {
 
 	// ColumnFunc is a transformation applied to  column names.
 	ColumnFunc func(string) string
+}
+
+func (p *PaginatorOptions) SetDefaults() {
+	if p.DefaultSize == 0 {
+		p.DefaultSize = DefaultPageSize
+	}
+	if p.MaxSize == 0 {
+		p.MaxSize = MaxPageSize
+	}
+	if p.MaxSize < p.DefaultSize {
+		p.MaxSize = p.DefaultSize
+	}
 }
 
 func (o *PaginatorOptions) getDefaults() (defaultSize, maxSize uint64) {
@@ -216,18 +238,11 @@ func (p Paginator[T]) getOrder(page *Page) []string {
 
 // PrepareQuery adds pagination to the query. It sets the number of max rows to limit+1.
 func (p Paginator[T]) PrepareQuery(q sq.SelectBuilder, page *Page) ([]T, sq.SelectBuilder) {
+	p.SetDefaults()
 	if page == nil {
 		page = &Page{}
 	}
-	if page.Page == 0 {
-		page.Page = 1
-	}
-	if page.Size == 0 {
-		page.Size = p.DefaultSize
-	}
-	if p.MaxSize != 0 && page.Size > p.MaxSize {
-		page.Size = p.MaxSize
-	}
+	page.SetDefaults(&p.PaginatorOptions)
 
 	limit := page.Limit(&p.PaginatorOptions)
 	q = q.Limit(page.Limit(&p.PaginatorOptions) + 1).Offset(page.Offset(&p.PaginatorOptions)).OrderBy(p.getOrder(page)...)
