@@ -57,8 +57,8 @@ func TestBigIntScan(t *testing.T) {
 	assert.Error(t, b.Scan("1."))
 
 	assert.NoError(t, b.Scan("100"))
-	assert.True(t, b.Uint64() == 100)
+	assert.Equal(t, uint64(100), b.Uint64())
 
 	assert.NoError(t, b.Scan("2e0"))
-	assert.True(t, b.Uint64() == 2)
+	assert.Equal(t, uint64(2), b.Uint64())
 }

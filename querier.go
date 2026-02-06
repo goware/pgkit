@@ -132,13 +132,15 @@ func (q *Querier) BatchExec(ctx context.Context, queries Queries) ([]pgconn.Comm
 	}
 
 	// Send batch
-	var results pgx.BatchResults
-	if q.Tx != nil {
-		results = q.Tx.SendBatch(ctx, batch)
-	} else {
-		results = q.pool.SendBatch(ctx, batch)
+	type batchSender interface {
+		SendBatch(context.Context, *pgx.Batch) pgx.BatchResults
 	}
-	defer results.Close()
+	batcher := batchSender(q.pool)
+	if q.Tx != nil {
+		batcher = batchSender(q.Tx)
+	}
+	results := batcher.SendBatch(ctx, batch)
+	defer results.Close() //nolint:errcheck
 
 	// Exec the number of times as we have queries in the batch so we may get the exec
 	// result and potential error response.
@@ -291,7 +293,7 @@ func (r RawSQL) ToSql() (string, []interface{}, error) {
 		return r.Query, r.Args, nil
 	}
 
-	if r.Args == nil || len(r.Args) == 0 {
+	if len(r.Args) == 0 {
 		return r.Query, r.Args, nil // assume no params passed
 	}
 

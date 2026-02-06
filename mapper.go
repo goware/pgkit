@@ -80,7 +80,7 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 		for _, fi := range fieldMap {
 
 			// Skip any fields which do not specify the `db:".."` tag
-			if strings.Index(string(fi.Field.Tag), dbTagPrefix) < 0 {
+			if !strings.Contains(string(fi.Field.Tag), dbTagPrefix) {
 				continue
 			}
 

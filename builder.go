@@ -78,9 +78,7 @@ func (s StatementBuilder) UpdateRecordColumns(record interface{}, whereExpr sq.E
 
 	// when filter is empty or nil, update the entire record
 	var filter []string
-	if filterCols == nil || len(filterCols) == 0 {
-		filter = nil
-	} else {
+	if len(filterCols) != 0 {
 		filter = filterCols
 	}
 
@@ -126,7 +124,7 @@ func createMap(k []string, v []interface{}, filterK []string) (map[string]interf
 	m := make(map[string]interface{}, len(k))
 
 	for i := 0; i < len(k); i++ {
-		if filterK == nil || len(filterK) == 0 {
+		if len(filterK) == 0 {
 			m[k[i]] = v[i]
 			continue
 		}
