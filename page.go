@@ -157,9 +157,6 @@ func (p *Page) Limit() uint64 {
 	if p != nil && p.Size != 0 {
 		n = uint64(p.Size)
 	}
-	if n > DefaultPageSize {
-		n = DefaultPageSize
-	}
 	return n
 }
 
