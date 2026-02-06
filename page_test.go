@@ -12,17 +12,18 @@ import (
 type T struct{}
 
 func TestPagination(t *testing.T) {
-	o := &pgkit.PaginatorOptions{
-		ColumnFunc:  strings.ToLower,
-		DefaultSize: 2,
-		MaxSize:     5,
-		Sort:        []string{"ID"},
+	const _MaxSize = 5
+	options := []pgkit.PaginatorOption{
+		pgkit.WithColumnFunc(strings.ToLower),
+		pgkit.WithDefaultSize(2),
+		pgkit.WithMaxSize(_MaxSize),
+		pgkit.WithDefaultSort("ID"),
 	}
-	paginator := pgkit.NewPaginator[T](o)
+	paginator := pgkit.NewPaginator[T](options...)
 	page := pgkit.NewPage(0, 0)
 	result, query := paginator.PrepareQuery(sq.Select("*").From("t"), page)
 	require.Len(t, result, 0)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: o.MaxSize}, page)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: _MaxSize}, page)
 
 	sql, args, err := query.ToSql()
 	require.NoError(t, err)
@@ -31,15 +32,15 @@ func TestPagination(t *testing.T) {
 
 	result = paginator.PrepareResult(make([]T, 0), page)
 	require.Len(t, result, 0)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: o.MaxSize}, page)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: _MaxSize}, page)
 
-	result = paginator.PrepareResult(make([]T, o.MaxSize), page)
-	require.Len(t, result, int(o.MaxSize))
-	require.Equal(t, &pgkit.Page{Page: 1, Size: o.MaxSize}, page)
+	result = paginator.PrepareResult(make([]T, _MaxSize), page)
+	require.Len(t, result, int(_MaxSize))
+	require.Equal(t, &pgkit.Page{Page: 1, Size: _MaxSize}, page)
 
-	result = paginator.PrepareResult(make([]T, o.MaxSize+2), page)
-	require.Len(t, result, int(o.MaxSize))
-	require.Equal(t, &pgkit.Page{Page: 1, Size: o.MaxSize, More: true}, page)
+	result = paginator.PrepareResult(make([]T, _MaxSize+2), page)
+	require.Len(t, result, int(_MaxSize))
+	require.Equal(t, &pgkit.Page{Page: 1, Size: _MaxSize, More: true}, page)
 }
 
 func TestInvalidSort(t *testing.T) {
@@ -125,7 +126,7 @@ func TestPaginationEdgeCases(t *testing.T) {
 	require.Equal(t, "SELECT * FROM t LIMIT 11 OFFSET 0", sql2)
 
 	// Test case 3: empty options, NewPage
-	paginator3 := pgkit.NewPaginator[T](&pgkit.PaginatorOptions{})
+	paginator3 := pgkit.NewPaginator[T]()
 	page3 := pgkit.NewPage(0, 0)
 	result3, query3 := paginator3.PrepareQuery(sq.Select("*").From("t"), page3)
 	require.Len(t, result3, 0)
@@ -135,25 +136,14 @@ func TestPaginationEdgeCases(t *testing.T) {
 	require.NoError(t, err3)
 	require.Equal(t, "SELECT * FROM t LIMIT 11 OFFSET 0", sql3)
 
-	// Test case 4: options with defaults, struct assignment
-	paginator4 := pgkit.Paginator[T]{pgkit.PaginatorOptions{DefaultSize: 5, MaxSize: 20}}
+	// Test case 4: max size lower than default size
+	paginator4 := pgkit.NewPaginator[T](pgkit.WithDefaultSize(20), pgkit.WithMaxSize(5))
 	page4 := &pgkit.Page{}
 	result4, query4 := paginator4.PrepareQuery(sq.Select("*").From("t"), page4)
 	require.Len(t, result4, 0)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: 5}, page4)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: 20}, page4)
 
 	sql4, _, err4 := query4.ToSql()
 	require.NoError(t, err4)
-	require.Equal(t, "SELECT * FROM t LIMIT 6 OFFSET 0", sql4)
-
-	// Test case 5: max size lower than default size
-	paginator5 := pgkit.NewPaginator[T](&pgkit.PaginatorOptions{DefaultSize: 20, MaxSize: 5})
-	page5 := &pgkit.Page{}
-	result5, query5 := paginator5.PrepareQuery(sq.Select("*").From("t"), page5)
-	require.Len(t, result5, 0)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: 20}, page5)
-
-	sql5, _, err5 := query5.ToSql()
-	require.NoError(t, err5)
-	require.Equal(t, "SELECT * FROM t LIMIT 21 OFFSET 0", sql5)
+	require.Equal(t, "SELECT * FROM t LIMIT 21 OFFSET 0", sql4)
 }

@@ -87,9 +87,9 @@ func NewPage(size, page uint32, sort ...Sort) *Page {
 	}
 }
 
-func (p *Page) SetDefaults(o *PaginatorOptions) {
+func (p *Page) SetDefaults(o *PaginatorSettings) {
 	if o == nil {
-		o = &PaginatorOptions{
+		o = &PaginatorSettings{
 			DefaultSize: DefaultPageSize,
 			MaxSize:     MaxPageSize,
 		}
@@ -128,7 +128,7 @@ func (p *Page) GetOrder(defaultSort ...string) []Sort {
 	}
 	// use column
 	sort := make([]Sort, 0)
-	for _, part := range strings.Split(p.Column, ",") {
+	for part := range strings.SplitSeq(p.Column, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -160,20 +160,8 @@ func (p *Page) Limit() uint64 {
 	return n
 }
 
-// NewPaginator creates a new paginator with the given options.
-// If MaxSize is less than DefaultSize, MaxSize is set to DefaultSize.
-func NewPaginator[T any](options *PaginatorOptions) Paginator[T] {
-	p := Paginator[T]{}
-	if options == nil {
-		options = &PaginatorOptions{}
-	}
-	options.SetDefaults()
-	p.PaginatorOptions = *options
-	return p
-}
-
-// PaginatorOptions are the options for the paginator.
-type PaginatorOptions struct {
+// PaginatorSettings are the settings for the paginator.
+type PaginatorSettings struct {
 	// DefaultSize is the default number of rows per page.
 	// If zero, DefaultPageSize is used.
 	DefaultSize uint32
@@ -189,28 +177,59 @@ type PaginatorOptions struct {
 	ColumnFunc func(string) string
 }
 
-func (p *PaginatorOptions) SetDefaults() {
-	if p.DefaultSize == 0 {
-		p.DefaultSize = DefaultPageSize
+type PaginatorOption func(*PaginatorSettings)
+
+func WithDefaultSize(size uint32) PaginatorOption {
+	return func(s *PaginatorSettings) {
+		s.DefaultSize = size
 	}
-	if p.MaxSize == 0 {
-		p.MaxSize = MaxPageSize
+}
+
+func WithMaxSize(size uint32) PaginatorOption {
+	return func(s *PaginatorSettings) {
+		s.MaxSize = size
 	}
-	p.MaxSize = max(p.DefaultSize, p.MaxSize)
-	p.DefaultSize = min(p.DefaultSize, p.MaxSize)
+}
+
+func WithDefaultSort(sort ...string) PaginatorOption {
+	return func(s *PaginatorSettings) {
+		s.Sort = sort
+	}
+}
+
+func WithColumnFunc(f func(string) string) PaginatorOption {
+	return func(s *PaginatorSettings) {
+		s.ColumnFunc = f
+	}
+}
+
+// NewPaginator creates a new paginator with the given options.
+// If MaxSize is less than DefaultSize, MaxSize is set to DefaultSize.
+func NewPaginator[T any](options ...PaginatorOption) Paginator[T] {
+	settings := &PaginatorSettings{
+		DefaultSize: DefaultPageSize,
+		MaxSize:     MaxPageSize,
+	}
+	for _, option := range options {
+		option(settings)
+	}
+	if settings.MaxSize < settings.DefaultSize {
+		settings.MaxSize = settings.DefaultSize
+	}
+	return Paginator[T]{settings: *settings}
 }
 
 // Paginator is a helper to paginate results.
 type Paginator[T any] struct {
-	PaginatorOptions
+	settings PaginatorSettings
 }
 
 func (p Paginator[T]) getOrder(page *Page) []string {
-	sort := page.GetOrder(p.Sort...)
+	sort := page.GetOrder(p.settings.Sort...)
 	list := make([]string, len(sort))
 	for i, s := range sort {
-		if p.ColumnFunc != nil {
-			s.Column = p.ColumnFunc(s.Column)
+		if p.settings.ColumnFunc != nil {
+			s.Column = p.settings.ColumnFunc(s.Column)
 		}
 		list[i] = s.String()
 	}
@@ -219,11 +238,10 @@ func (p Paginator[T]) getOrder(page *Page) []string {
 
 // PrepareQuery adds pagination to the query. It sets the number of max rows to limit+1.
 func (p Paginator[T]) PrepareQuery(q sq.SelectBuilder, page *Page) ([]T, sq.SelectBuilder) {
-	p.SetDefaults()
 	if page == nil {
 		page = &Page{}
 	}
-	page.SetDefaults(&p.PaginatorOptions)
+	page.SetDefaults(&p.settings)
 
 	limit := page.Limit()
 	q = q.Limit(limit + 1).Offset(page.Offset()).OrderBy(p.getOrder(page)...)
