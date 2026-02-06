@@ -179,24 +179,28 @@ type PaginatorSettings struct {
 
 type PaginatorOption func(*PaginatorSettings)
 
+// WithDefaultSize sets the default page size.
 func WithDefaultSize(size uint32) PaginatorOption {
 	return func(s *PaginatorSettings) {
 		s.DefaultSize = size
 	}
 }
 
+// WithMaxSize sets the maximum page size.
 func WithMaxSize(size uint32) PaginatorOption {
 	return func(s *PaginatorSettings) {
 		s.MaxSize = size
 	}
 }
 
-func WithDefaultSort(sort ...string) PaginatorOption {
+// WithSort sets the default sort order.
+func WithSort(sort ...string) PaginatorOption {
 	return func(s *PaginatorSettings) {
 		s.Sort = sort
 	}
 }
 
+// WithColumnFunc sets a function to transform column names.
 func WithColumnFunc(f func(string) string) PaginatorOption {
 	return func(s *PaginatorSettings) {
 		s.ColumnFunc = f

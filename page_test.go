@@ -17,7 +17,7 @@ func TestPagination(t *testing.T) {
 		pgkit.WithColumnFunc(strings.ToLower),
 		pgkit.WithDefaultSize(2),
 		pgkit.WithMaxSize(_MaxSize),
-		pgkit.WithDefaultSort("ID"),
+		pgkit.WithSort("ID"),
 	}
 	paginator := pgkit.NewPaginator[T](options...)
 	page := pgkit.NewPage(0, 0)
