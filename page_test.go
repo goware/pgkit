@@ -32,6 +32,9 @@ func TestPagination(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, `SELECT * FROM t ORDER BY "id" ASC LIMIT 3 OFFSET 0`, sql)
 	require.Empty(t, args)
+	// Verify page.Column and page.Sort are not modified
+	require.Empty(t, page.Column)
+	require.Len(t, page.Sort, 0)
 
 	result = paginator.PrepareResult(make([]T, 0), page)
 	require.Len(t, result, 0)
@@ -60,6 +63,9 @@ func TestInvalidSort(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "SELECT * FROM t ORDER BY \"ID; DROP TABLE users;\" ASC, \"name\" DESC LIMIT 11 OFFSET 0", sql)
 	require.Empty(t, args)
+	// Verify columns in page.Sort are not quoted
+	require.Equal(t, "ID; DROP TABLE users;", page.Sort[0].Column)
+	require.Equal(t, "name", page.Sort[1].Column)
 }
 
 func TestPageColumnInjection(t *testing.T) {
@@ -73,6 +79,8 @@ func TestPageColumnInjection(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "SELECT * FROM t ORDER BY \"id; DROP TABLE users;--\" ASC LIMIT 11 OFFSET 0", sql)
 	require.Empty(t, args)
+	// Verify column in page is not quoted
+	require.Equal(t, "id; DROP TABLE users;--", page.Column)
 }
 
 func TestPageColumnSpaces(t *testing.T) {
@@ -86,6 +94,8 @@ func TestPageColumnSpaces(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "SELECT * FROM t ORDER BY \"id\" ASC, \"name\" ASC LIMIT 11 OFFSET 0", sql)
 	require.Empty(t, args)
+	// Verify column in page is not quoted
+	require.Equal(t, "id, name", page.Column)
 }
 
 func TestSortOrderInjection(t *testing.T) {
@@ -103,6 +113,10 @@ func TestSortOrderInjection(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "SELECT * FROM t ORDER BY \"id\" ASC, \"name\" DESC, \"created_at\" ASC LIMIT 11 OFFSET 0", sql)
 	require.Empty(t, args)
+	// Verify columns in page.Sort are not quoted
+	require.Equal(t, "id", page.Sort[0].Column)
+	require.Equal(t, "name", page.Sort[1].Column)
+	require.Equal(t, "created_at", page.Sort[2].Column)
 }
 
 func TestPaginationEdgeCases(t *testing.T) {
@@ -180,6 +194,10 @@ func TestColumnFunc(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, `SELECT * FROM t ORDER BY "ID" ASC, "NAME" DESC, "created_at" ASC LIMIT 11 OFFSET 0`, sql)
 	require.Empty(t, args)
+	// Verify columns in page.Sort are not quoted
+	require.Equal(t, "id", page.Sort[0].Column)
+	require.Equal(t, "name", page.Sort[1].Column)
+	require.Equal(t, "created_at", page.Sort[2].Column)
 }
 
 func TestColumnFallbackUsesColumnFunc(t *testing.T) {
@@ -199,6 +217,8 @@ func TestColumnFallbackUsesColumnFunc(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, `SELECT * FROM t ORDER BY "NAME" ASC LIMIT 11 OFFSET 0`, sql)
 	require.Empty(t, args)
+	// Verify column in page is not quoted or transformed
+	require.Equal(t, "name", page.Column)
 }
 
 func TestSortTakesPrecedenceOverColumn(t *testing.T) {
@@ -218,6 +238,8 @@ func TestSortTakesPrecedenceOverColumn(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, `SELECT * FROM t ORDER BY "id" DESC LIMIT 11 OFFSET 0`, sql)
 	require.Empty(t, args)
+	// Verify sort column in page is not quoted
+	require.Equal(t, "id", page.Sort[0].Column)
 }
 
 func TestPaginationOffsetAndPageRecompute(t *testing.T) {
