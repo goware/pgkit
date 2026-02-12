@@ -3,6 +3,7 @@ package pgkit
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
@@ -111,7 +112,7 @@ func (p *Page) SetDefaults(o *PaginatorSettings) {
 func (p *Page) GetOrder(columnFunc func(string) string, defaultSort ...string) []Sort {
 	var sorts []Sort
 	if p != nil && len(p.Sort) != 0 {
-		sorts = append(sorts, p.Sort...) // copy to avoid modifying the original slice
+		sorts = slices.Clone(p.Sort)
 	}
 	// fall back to column
 	if len(sorts) == 0 {
