@@ -111,8 +111,7 @@ func (p *Page) SetDefaults(o *PaginatorSettings) {
 func (p *Page) GetOrder(columnFunc func(string) string, defaultSort ...string) []Sort {
 	var sorts []Sort
 	if p != nil && len(p.Sort) != 0 {
-		// use sort
-		sorts = p.Sort
+		sorts = append(sorts, p.Sort...) // copy to avoid modifying the original slice
 	}
 	// fall back to column
 	if len(sorts) == 0 {
