@@ -30,7 +30,7 @@ func TestPagination(t *testing.T) {
 
 	sql, args, err := query.ToSql()
 	require.NoError(t, err)
-	require.Equal(t, "SELECT * FROM t ORDER BY id ASC LIMIT 3 OFFSET 0", sql)
+	require.Equal(t, `SELECT * FROM t ORDER BY "id" ASC LIMIT 3 OFFSET 0`, sql)
 	require.Empty(t, args)
 
 	result = paginator.PrepareResult(make([]T, 0), page)
