@@ -26,24 +26,24 @@ func TestPagination(t *testing.T) {
 	page := pgkit.NewPage(0, 0)
 	result, query := paginator.PrepareQuery(sq.Select("*").From("t"), page)
 	require.Len(t, result, 0)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize}, page)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: DefaultSize}, page)
 
 	sql, args, err := query.ToSql()
 	require.NoError(t, err)
-	require.Equal(t, "SELECT * FROM t ORDER BY id ASC LIMIT 6 OFFSET 0", sql)
+	require.Equal(t, "SELECT * FROM t ORDER BY id ASC LIMIT 3 OFFSET 0", sql)
 	require.Empty(t, args)
 
 	result = paginator.PrepareResult(make([]T, 0), page)
 	require.Len(t, result, 0)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize}, page)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: DefaultSize}, page)
 
-	result = paginator.PrepareResult(make([]T, MaxSize), page)
-	require.Len(t, result, MaxSize)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize}, page)
+	result = paginator.PrepareResult(make([]T, DefaultSize), page)
+	require.Len(t, result, DefaultSize)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: DefaultSize}, page)
 
-	result = paginator.PrepareResult(make([]T, MaxSize+2), page)
-	require.Len(t, result, MaxSize)
-	require.Equal(t, &pgkit.Page{Page: 1, Size: MaxSize, More: true}, page)
+	result = paginator.PrepareResult(make([]T, DefaultSize+2), page)
+	require.Len(t, result, DefaultSize)
+	require.Equal(t, &pgkit.Page{Page: 1, Size: DefaultSize, More: true}, page)
 }
 
 func TestInvalidSort(t *testing.T) {
@@ -180,4 +180,61 @@ func TestColumnFunc(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, `SELECT * FROM t ORDER BY "ID" ASC, "NAME" DESC, "created_at" ASC LIMIT 11 OFFSET 0`, sql)
 	require.Empty(t, args)
+}
+
+func TestColumnFallbackUsesColumnFunc(t *testing.T) {
+	paginator := pgkit.NewPaginator[T](
+		pgkit.WithColumnFunc(strings.ToUpper),
+		pgkit.WithSort("id"),
+	)
+	page := &pgkit.Page{
+		Page:   1,
+		Size:   10,
+		Column: "name",
+	}
+
+	_, query := paginator.PrepareQuery(sq.Select("*").From("t"), page)
+
+	sql, args, err := query.ToSql()
+	require.NoError(t, err)
+	require.Equal(t, `SELECT * FROM t ORDER BY "NAME" ASC LIMIT 11 OFFSET 0`, sql)
+	require.Empty(t, args)
+}
+
+func TestSortTakesPrecedenceOverColumn(t *testing.T) {
+	paginator := pgkit.NewPaginator[T]()
+	page := &pgkit.Page{
+		Page:   1,
+		Size:   10,
+		Column: "name",
+		Sort: []pgkit.Sort{
+			{Column: "id", Order: pgkit.Desc},
+		},
+	}
+
+	_, query := paginator.PrepareQuery(sq.Select("*").From("t"), page)
+
+	sql, args, err := query.ToSql()
+	require.NoError(t, err)
+	require.Equal(t, `SELECT * FROM t ORDER BY "id" DESC LIMIT 11 OFFSET 0`, sql)
+	require.Empty(t, args)
+}
+
+func TestPaginationOffsetAndPageRecompute(t *testing.T) {
+	paginator := pgkit.NewPaginator[T]()
+	page := &pgkit.Page{
+		Page: 3,
+		Size: 2,
+	}
+
+	_, query := paginator.PrepareQuery(sq.Select("*").From("t"), page)
+
+	sql, args, err := query.ToSql()
+	require.NoError(t, err)
+	require.Equal(t, "SELECT * FROM t LIMIT 3 OFFSET 4", sql)
+	require.Empty(t, args)
+
+	result := paginator.PrepareResult(make([]T, 3), page)
+	require.Len(t, result, 2)
+	require.Equal(t, &pgkit.Page{Page: 3, Size: 2, More: true}, page)
 }
