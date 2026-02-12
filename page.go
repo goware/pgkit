@@ -29,25 +29,10 @@ type Sort struct {
 }
 
 func (s Sort) String() string {
-	if s.Column == "" {
-		return ""
-	}
-	s.Order = sanitizeOrder(s.Order)
 	return fmt.Sprintf("%s %s", s.Column, s.Order)
 }
 
 var _MatcherOrderBy = regexp.MustCompile(`-?([a-zA-Z0-9]+)`)
-
-func sanitizeOrder(order Order) Order {
-	switch strings.ToUpper(strings.TrimSpace(string(order))) {
-	case string(Desc):
-		return Desc
-	case string(Asc):
-		return Asc
-	default:
-		return Asc
-	}
-}
 
 func NewSort(s string) (Sort, bool) {
 	s = strings.TrimSpace(s)
@@ -74,12 +59,6 @@ type Page struct {
 }
 
 func NewPage(size, page uint32, sort ...Sort) *Page {
-	if size == 0 {
-		size = DefaultPageSize
-	}
-	if page == 0 {
-		page = 1
-	}
 	return &Page{
 		Size: size,
 		Page: page,
@@ -105,40 +84,48 @@ func (p *Page) SetDefaults(o *PaginatorSettings) {
 	}
 }
 
-func (p *Page) GetOrder(defaultSort ...string) []Sort {
-	// if page has sort, use it
+func (p *Page) GetOrder(columnFunc func(string) string, defaultSort ...string) []Sort {
+	var sorts []Sort
 	if p != nil && len(p.Sort) != 0 {
-		for i, s := range p.Sort {
-			s.Column = strings.TrimSpace(s.Column)
-			s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
-			s.Order = sanitizeOrder(s.Order)
-			p.Sort[i] = s
-		}
-		return p.Sort
+		// use sort
+		sorts = p.Sort
 	}
-	// if page has column, use default sort
-	if p == nil || p.Column == "" {
-		sort := make([]Sort, 0, len(defaultSort))
-		for _, s := range defaultSort {
-			if s, ok := NewSort(s); ok {
-				sort = append(sort, s)
+	// fall back to column
+	if len(sorts) == 0 {
+		if p != nil && p.Column != "" {
+			for part := range strings.SplitSeq(p.Column, ",") {
+				if s, ok := NewSort(part); ok {
+					sorts = append(sorts, s)
+				}
 			}
 		}
-		return sort
 	}
-	// use column
-	sort := make([]Sort, 0)
-	for part := range strings.SplitSeq(p.Column, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		if s, ok := NewSort(part); ok {
-			s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
-			sort = append(sort, s)
+	if len(sorts) == 0 {
+		for _, s := range defaultSort {
+			if s, ok := NewSort(s); ok {
+				sorts = append(sorts, s)
+			}
 		}
 	}
-	return sort
+
+	for i := range sorts {
+		s := &sorts[i]
+		s.Column = strings.TrimSpace(s.Column)
+		if columnFunc != nil {
+			s.Column = columnFunc(s.Column)
+		}
+		s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
+
+		switch strings.ToUpper(strings.TrimSpace(string(s.Order))) {
+		case string(Desc):
+			s.Order = Desc
+		case string(Asc):
+			s.Order = Asc
+		default:
+			s.Order = Asc
+		}
+	}
+	return sorts
 }
 
 func (p *Page) Offset() uint64 {
@@ -229,13 +216,10 @@ type Paginator[T any] struct {
 }
 
 func (p Paginator[T]) getOrder(page *Page) []string {
-	sort := page.GetOrder(p.settings.Sort...)
+	sort := page.GetOrder(p.settings.ColumnFunc, p.settings.Sort...)
 	list := make([]string, len(sort))
-	for i, s := range sort {
-		if p.settings.ColumnFunc != nil {
-			s.Column = p.settings.ColumnFunc(s.Column)
-		}
-		list[i] = s.String()
+	for i := range sort {
+		list[i] = sort[i].String()
 	}
 	return list
 }
@@ -253,6 +237,11 @@ func (p Paginator[T]) PrepareQuery(q sq.SelectBuilder, page *Page) ([]T, sq.Sele
 }
 
 func (p Paginator[T]) PrepareRaw(q string, args []any, page *Page) ([]T, string, []any) {
+	if page == nil {
+		page = &Page{}
+	}
+	page.SetDefaults(&p.settings)
+
 	limit, offset := page.Limit(), page.Offset()
 
 	q = q + " ORDER BY " + strings.Join(p.getOrder(page), ", ")
