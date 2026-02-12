@@ -134,7 +134,6 @@ func (p *Page) GetOrder(defaultSort ...string) []Sort {
 			continue
 		}
 		if s, ok := NewSort(part); ok {
-			s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
 			sort = append(sort, s)
 		}
 	}
@@ -235,6 +234,7 @@ func (p Paginator[T]) getOrder(page *Page) []string {
 		if p.settings.ColumnFunc != nil {
 			s.Column = p.settings.ColumnFunc(s.Column)
 		}
+		s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
 		list[i] = s.String()
 	}
 	return list

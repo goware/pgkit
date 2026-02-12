@@ -150,3 +150,34 @@ func TestPaginationEdgeCases(t *testing.T) {
 	require.NoError(t, err4)
 	require.Equal(t, "SELECT * FROM t LIMIT 21 OFFSET 0", sql4)
 }
+
+func TestColumnFunc(t *testing.T) {
+	fn := func(column string) string {
+		switch column {
+		case "id":
+			return "ID"
+		case "name":
+			return "NAME"
+		default:
+			return column
+		}
+	}
+	paginator := pgkit.NewPaginator[T](
+		pgkit.WithColumnFunc(fn),
+	)
+	page := &pgkit.Page{
+		Page: 1,
+		Size: 10,
+		Sort: []pgkit.Sort{
+			{Column: "id", Order: pgkit.Asc},
+			{Column: "name", Order: pgkit.Desc},
+			{Column: "created_at", Order: pgkit.Asc},
+		},
+	}
+	_, query := paginator.PrepareQuery(sq.Select("*").From("t"), page)
+
+	sql, args, err := query.ToSql()
+	require.NoError(t, err)
+	require.Equal(t, `SELECT * FROM t ORDER BY "ID" ASC, "NAME" DESC, "created_at" ASC LIMIT 11 OFFSET 0`, sql)
+	require.Empty(t, args)
+}
