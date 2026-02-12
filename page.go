@@ -28,7 +28,31 @@ type Sort struct {
 	Order  Order
 }
 
+func (s Sort) sanitize(columnFunc func(string) string) Sort {
+	s.Column = strings.TrimSpace(s.Column)
+	if s.Column != "" {
+		if columnFunc != nil {
+			s.Column = columnFunc(s.Column)
+		}
+		s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
+	}
+
+	switch strings.ToUpper(strings.TrimSpace(string(s.Order))) {
+	case string(Desc):
+		s.Order = Desc
+	case string(Asc):
+		s.Order = Asc
+	default:
+		s.Order = Asc
+	}
+	return s
+}
+
 func (s Sort) String() string {
+	s = s.sanitize(nil)
+	if s.Column == "" {
+		return ""
+	}
 	return fmt.Sprintf("%s %s", s.Column, s.Order)
 }
 
@@ -109,21 +133,7 @@ func (p *Page) GetOrder(columnFunc func(string) string, defaultSort ...string) [
 	}
 
 	for i := range sorts {
-		s := &sorts[i]
-		s.Column = strings.TrimSpace(s.Column)
-		if columnFunc != nil {
-			s.Column = columnFunc(s.Column)
-		}
-		s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
-
-		switch strings.ToUpper(strings.TrimSpace(string(s.Order))) {
-		case string(Desc):
-			s.Order = Desc
-		case string(Asc):
-			s.Order = Asc
-		default:
-			s.Order = Asc
-		}
+		sorts[i] = sorts[i].sanitize(columnFunc)
 	}
 	return sorts
 }
@@ -219,7 +229,7 @@ func (p Paginator[T]) getOrder(page *Page) []string {
 	sort := page.GetOrder(p.settings.ColumnFunc, p.settings.Sort...)
 	list := make([]string, len(sort))
 	for i := range sort {
-		list[i] = sort[i].String()
+		list[i] = fmt.Sprintf("%s %s", sort[i].Column, sort[i].Order)
 	}
 	return list
 }
