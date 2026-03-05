@@ -12,32 +12,38 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Table provides basic CRUD operations for database records.
-// Records must implement GetID() and Validate() methods.
-type Table[T any, PT interface {
+// ID is a comparable type used for record IDs.
+type ID comparable
+
+// Records must be a pointer with the methods defined on the pointer.
+type Record[T any, I ID] interface {
 	*T // Enforce T is a pointer.
-	GetID() IDT
+	GetID() I
 	Validate() error
-}, IDT comparable] struct {
+}
+
+// Table provides basic CRUD operations for database records.
+type Table[T any, P Record[T, I], I ID] struct {
 	*DB
 	Name     string
 	IDColumn string
 }
 
-type hasSetCreatedAt interface {
-	SetCreatedAt(time.Time)
-}
-
-type hasSetUpdatedAt interface {
-	SetUpdatedAt(time.Time)
-}
-
-type hasSetDeletedAt interface {
-	SetDeletedAt(time.Time)
-}
+// helpers for setting timestamp fields
+type (
+	hasSetCreatedAt interface {
+		SetCreatedAt(time.Time)
+	}
+	hasSetUpdatedAt interface {
+		SetUpdatedAt(time.Time)
+	}
+	hasSetDeletedAt interface {
+		SetDeletedAt(time.Time)
+	}
+)
 
 // Save inserts or updates given records. Auto-detects insert vs update by ID based on zerovalue of ID from GetID() method on record.
-func (t *Table[T, PT, IDT]) Save(ctx context.Context, records ...PT) error {
+func (t *Table[T, P, I]) Save(ctx context.Context, records ...P) error {
 	switch len(records) {
 	case 0:
 		return nil
@@ -48,7 +54,7 @@ func (t *Table[T, PT, IDT]) Save(ctx context.Context, records ...PT) error {
 	}
 }
 
-func (t *Table[T, PT, IDT]) saveOne(ctx context.Context, record PT) error {
+func (t *Table[T, P, I]) saveOne(ctx context.Context, record P) error {
 	if record == nil {
 		return fmt.Errorf("record is nil")
 	}
@@ -62,7 +68,7 @@ func (t *Table[T, PT, IDT]) saveOne(ctx context.Context, record PT) error {
 	}
 
 	// Insert
-	var zero IDT
+	var zero I
 	if record.GetID() == zero {
 		q := t.SQL.
 			InsertRecord(record).
@@ -87,10 +93,10 @@ func (t *Table[T, PT, IDT]) saveOne(ctx context.Context, record PT) error {
 
 const chunkSize = 1000
 
-func (t *Table[T, PT, IDT]) saveAll(ctx context.Context, records []PT) error {
+func (t *Table[T, P, I]) saveAll(ctx context.Context, records []P) error {
 	now := time.Now().UTC()
 
-	insertRecords := make([]PT, 0)
+	insertRecords := make([]P, 0)
 	insertIndices := make([]int, 0) // keep track of original indices, so we can update the records with IDs in passed slice
 
 	updateQueries := make(Queries, 0)
@@ -108,7 +114,7 @@ func (t *Table[T, PT, IDT]) saveAll(ctx context.Context, records []PT) error {
 			row.SetUpdatedAt(now)
 		}
 
-		var zero IDT
+		var zero I
 		if r.GetID() == zero {
 			if row, ok := any(r).(hasSetCreatedAt); ok {
 				row.SetCreatedAt(now)
@@ -159,7 +165,7 @@ func (t *Table[T, PT, IDT]) saveAll(ctx context.Context, records []PT) error {
 }
 
 // getListQuery builds a base select query for listing records.
-func (t *Table[T, PT, IDT]) getListQuery(where sq.Sqlizer, orderBy []string) sq.SelectBuilder {
+func (t *Table[T, P, I]) getListQuery(where sq.Sqlizer, orderBy []string) sq.SelectBuilder {
 	if len(orderBy) == 0 {
 		orderBy = []string{t.IDColumn}
 	}
@@ -173,7 +179,7 @@ func (t *Table[T, PT, IDT]) getListQuery(where sq.Sqlizer, orderBy []string) sq.
 }
 
 // Get returns the first record matching the condition.
-func (t *Table[T, PT, IDT]) Get(ctx context.Context, where sq.Sqlizer, orderBy []string) (PT, error) {
+func (t *Table[T, P, I]) Get(ctx context.Context, where sq.Sqlizer, orderBy []string) (P, error) {
 	record := new(T)
 
 	q := t.getListQuery(where, orderBy).Limit(1)
@@ -186,9 +192,9 @@ func (t *Table[T, PT, IDT]) Get(ctx context.Context, where sq.Sqlizer, orderBy [
 }
 
 // List returns all records matching the condition.
-func (t *Table[T, PT, IDT]) List(ctx context.Context, where sq.Sqlizer, orderBy []string) ([]PT, error) {
+func (t *Table[T, P, I]) List(ctx context.Context, where sq.Sqlizer, orderBy []string) ([]P, error) {
 	q := t.getListQuery(where, orderBy)
-	var records []PT
+	var records []P
 	if err := t.Query.GetAll(ctx, q, &records); err != nil {
 		return nil, err
 	}
@@ -197,14 +203,14 @@ func (t *Table[T, PT, IDT]) List(ctx context.Context, where sq.Sqlizer, orderBy 
 }
 
 // Iter returns an iterator for records matching the condition.
-func (t *Table[T, PT, IDT]) Iter(ctx context.Context, where sq.Sqlizer, orderBy []string) (iter.Seq2[PT, error], error) {
+func (t *Table[T, P, I]) Iter(ctx context.Context, where sq.Sqlizer, orderBy []string) (iter.Seq2[P, error], error) {
 	q := t.getListQuery(where, orderBy)
 	rows, err := t.Query.QueryRows(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("query rows: %w", err)
 	}
 
-	return func(yield func(PT, error) bool) {
+	return func(yield func(P, error) bool) {
 		defer rows.Close()
 		for rows.Next() {
 			var record T
@@ -222,17 +228,17 @@ func (t *Table[T, PT, IDT]) Iter(ctx context.Context, where sq.Sqlizer, orderBy 
 }
 
 // GetByID returns a record by its ID.
-func (t *Table[T, PT, IDT]) GetByID(ctx context.Context, id IDT) (PT, error) {
+func (t *Table[T, P, I]) GetByID(ctx context.Context, id I) (P, error) {
 	return t.Get(ctx, sq.Eq{t.IDColumn: id}, []string{t.IDColumn})
 }
 
 // ListByIDs returns records by their IDs.
-func (t *Table[T, PT, IDT]) ListByIDs(ctx context.Context, ids []IDT) ([]PT, error) {
+func (t *Table[T, P, I]) ListByIDs(ctx context.Context, ids []I) ([]P, error) {
 	return t.List(ctx, sq.Eq{t.IDColumn: ids}, nil)
 }
 
 // Count returns the number of matching records.
-func (t *Table[T, PT, IDT]) Count(ctx context.Context, where sq.Sqlizer) (uint64, error) {
+func (t *Table[T, P, I]) Count(ctx context.Context, where sq.Sqlizer) (uint64, error) {
 	var count uint64
 	q := t.SQL.
 		Select("COUNT(1)").
@@ -247,7 +253,7 @@ func (t *Table[T, PT, IDT]) Count(ctx context.Context, where sq.Sqlizer) (uint64
 }
 
 // DeleteByID deletes a record by ID. Uses soft delete if .SetDeletedAt() method exists.
-func (t *Table[T, PT, IDT]) DeleteByID(ctx context.Context, id IDT) error {
+func (t *Table[T, P, I]) DeleteByID(ctx context.Context, id I) error {
 	record, err := t.GetByID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("delete: %w", err)
@@ -267,7 +273,7 @@ func (t *Table[T, PT, IDT]) DeleteByID(ctx context.Context, id IDT) error {
 }
 
 // HardDeleteByID permanently deletes a record by ID.
-func (t *Table[T, PT, IDT]) HardDeleteByID(ctx context.Context, id IDT) error {
+func (t *Table[T, P, I]) HardDeleteByID(ctx context.Context, id I) error {
 	q := t.SQL.Delete(t.Name).Where(sq.Eq{t.IDColumn: id})
 	if _, err := t.Query.Exec(ctx, q); err != nil {
 		return fmt.Errorf("hard delete: %w", err)
@@ -276,8 +282,8 @@ func (t *Table[T, PT, IDT]) HardDeleteByID(ctx context.Context, id IDT) error {
 }
 
 // WithTx returns a table instance bound to the given transaction.
-func (t *Table[T, PT, IDT]) WithTx(tx pgx.Tx) *Table[T, PT, IDT] {
-	return &Table[T, PT, IDT]{
+func (t *Table[T, P, I]) WithTx(tx pgx.Tx) *Table[T, P, I] {
+	return &Table[T, P, I]{
 		DB: &DB{
 			Conn:  t.DB.Conn,
 			SQL:   t.DB.SQL,
@@ -296,10 +302,10 @@ func (t *Table[T, PT, IDT]) WithTx(tx pgx.Tx) *Table[T, PT, IDT] {
 // to update status to "completed" or "failed".
 //
 // Returns ErrNoRows if no matching records are available for locking.
-func (t *Table[T, PT, IDT]) LockForUpdate(ctx context.Context, where sq.Sqlizer, orderBy []string, updateFn func(record PT)) error {
+func (t *Table[T, P, I]) LockForUpdate(ctx context.Context, where sq.Sqlizer, orderBy []string, updateFn func(record P)) error {
 	var noRows bool
 
-	err := t.LockForUpdates(ctx, where, orderBy, 1, func(records []PT) {
+	err := t.LockForUpdates(ctx, where, orderBy, 1, func(records []P) {
 		if len(records) > 0 {
 			updateFn(records[0])
 		} else {
@@ -324,7 +330,7 @@ func (t *Table[T, PT, IDT]) LockForUpdate(ctx context.Context, where sq.Sqlizer,
 // Keep updateFn() fast to avoid holding the transaction. For long-running work, update status
 // to "processing" and return early, then process asynchronously. Use defer LockForUpdate()
 // to update status to "completed" or "failed".
-func (t *Table[T, PT, IDT]) LockForUpdates(ctx context.Context, where sq.Sqlizer, orderBy []string, limit uint64, updateFn func(records []PT)) error {
+func (t *Table[T, P, I]) LockForUpdates(ctx context.Context, where sq.Sqlizer, orderBy []string, limit uint64, updateFn func(records []P)) error {
 	// Check if we're already in a transaction
 	if t.DB.Query.Tx != nil {
 		if err := t.lockForUpdatesWithTx(ctx, t.DB.Query.Tx, where, orderBy, limit, updateFn); err != nil {
@@ -340,7 +346,7 @@ func (t *Table[T, PT, IDT]) LockForUpdates(ctx context.Context, where sq.Sqlizer
 	})
 }
 
-func (t *Table[T, PT, IDT]) lockForUpdatesWithTx(ctx context.Context, pgTx pgx.Tx, where sq.Sqlizer, orderBy []string, limit uint64, updateFn func(records []PT)) error {
+func (t *Table[T, P, I]) lockForUpdatesWithTx(ctx context.Context, pgTx pgx.Tx, where sq.Sqlizer, orderBy []string, limit uint64, updateFn func(records []P)) error {
 	if len(orderBy) == 0 {
 		orderBy = []string{t.IDColumn}
 	}
@@ -355,7 +361,7 @@ func (t *Table[T, PT, IDT]) lockForUpdatesWithTx(ctx context.Context, pgTx pgx.T
 
 	txQuery := t.DB.TxQuery(pgTx)
 
-	var records []PT
+	var records []P
 	if err := txQuery.GetAll(ctx, q, &records); err != nil {
 		return fmt.Errorf("select for update skip locked: %w", err)
 	}
