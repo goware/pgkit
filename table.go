@@ -289,7 +289,8 @@ func (t *Table[T, P, I]) WithTx(tx pgx.Tx) *Table[T, P, I] {
 			SQL:   t.DB.SQL,
 			Query: t.DB.TxQuery(tx),
 		},
-		Name: t.Name,
+		Name:     t.Name,
+		IDColumn: t.IDColumn,
 	}
 }
 

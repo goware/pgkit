@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 )
 
@@ -192,6 +193,34 @@ func TestTable(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err, "SaveTx transaction failed")
+	})
+
+	t.Run("WithTx keeps IDColumn", func(t *testing.T) {
+		ctx := t.Context()
+
+		account := &Account{Name: "WithTx IDColumn Account"}
+		err := db.Accounts.Save(ctx, account)
+		require.NoError(t, err, "create account failed")
+
+		article := &Article{AccountID: account.ID, Author: "WithTx author"}
+		err = db.Articles.Save(ctx, article)
+		require.NoError(t, err, "create article failed")
+
+		err = pgx.BeginFunc(ctx, db.Conn, func(pgTx pgx.Tx) error {
+			txTable := db.Articles.Table.WithTx(pgTx)
+			if err := txTable.HardDeleteByID(ctx, article.ID); err != nil {
+				return err
+			}
+
+			_, err := txTable.GetByID(ctx, article.ID)
+			require.Error(t, err, "article should be deleted inside tx")
+
+			return nil
+		})
+		require.NoError(t, err, "WithTx HardDeleteByID failed")
+
+		_, err = db.Articles.GetByID(ctx, article.ID)
+		require.Error(t, err, "article should be deleted")
 	})
 }
 
