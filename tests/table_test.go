@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/goware/pgkit/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 )
@@ -193,6 +194,104 @@ func TestTable(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, err, "SaveTx transaction failed")
+	})
+
+	t.Run("ListPaged", func(t *testing.T) {
+		ctx := t.Context()
+
+		account := &Account{Name: "ListPaged Account"}
+		err := db.Accounts.Save(ctx, account)
+		require.NoError(t, err)
+
+		// Create 15 articles.
+		for i := range 15 {
+			err := db.Articles.Save(ctx, &Article{
+				AccountID: account.ID,
+				Author:    fmt.Sprintf("Author %02d", i),
+			})
+			require.NoError(t, err)
+		}
+
+		// Default paginator (page size 10).
+		page := pgkit.NewPage(0, 1)
+		results, retPage, err := db.Articles.ListPaged(ctx, sq.Eq{"account_id": account.ID}, page)
+		require.NoError(t, err)
+		require.Len(t, results, 10)
+		require.True(t, retPage.More, "should have more pages")
+
+		// Second page.
+		page2 := pgkit.NewPage(0, 2)
+		results2, retPage2, err := db.Articles.ListPaged(ctx, sq.Eq{"account_id": account.ID}, page2)
+		require.NoError(t, err)
+		require.Len(t, results2, 5)
+		require.False(t, retPage2.More, "should not have more pages")
+
+		// No overlap between pages.
+		for _, r1 := range results {
+			for _, r2 := range results2 {
+				require.NotEqual(t, r1.ID, r2.ID, "pages should not overlap")
+			}
+		}
+	})
+
+	t.Run("WithPaginator", func(t *testing.T) {
+		ctx := t.Context()
+
+		account := &Account{Name: "WithPaginator Account"}
+		err := db.Accounts.Save(ctx, account)
+		require.NoError(t, err)
+
+		for i := range 10 {
+			err := db.Articles.Save(ctx, &Article{
+				AccountID: account.ID,
+				Author:    fmt.Sprintf("PagAuthor %02d", i),
+			})
+			require.NoError(t, err)
+		}
+
+		// Use a custom paginator with page size 3.
+		pagedTable := db.Articles.Table.WithPaginator(pgkit.WithDefaultSize(3), pgkit.WithMaxSize(5))
+
+		page := pgkit.NewPage(0, 1)
+		results, retPage, err := pagedTable.ListPaged(ctx, sq.Eq{"account_id": account.ID}, page)
+		require.NoError(t, err)
+		require.Len(t, results, 3, "should return 3 records with custom paginator")
+		require.True(t, retPage.More)
+
+		// Request size larger than max should be capped.
+		bigPage := pgkit.NewPage(100, 1)
+		results, _, err = pagedTable.ListPaged(ctx, sq.Eq{"account_id": account.ID}, bigPage)
+		require.NoError(t, err)
+		require.Len(t, results, 5, "should be capped at max size 5")
+	})
+
+	t.Run("WithTx preserves Paginator", func(t *testing.T) {
+		ctx := t.Context()
+
+		account := &Account{Name: "WithTx Paginator Account"}
+		err := db.Accounts.Save(ctx, account)
+		require.NoError(t, err)
+
+		for i := range 5 {
+			err := db.Articles.Save(ctx, &Article{
+				AccountID: account.ID,
+				Author:    fmt.Sprintf("TxPag %02d", i),
+			})
+			require.NoError(t, err)
+		}
+
+		pagedTable := db.Articles.Table.WithPaginator(pgkit.WithDefaultSize(2))
+
+		err = pgx.BeginFunc(ctx, db.Conn, func(pgTx pgx.Tx) error {
+			txTable := pagedTable.WithTx(pgTx)
+			page := pgkit.NewPage(0, 1)
+			results, retPage, err := txTable.ListPaged(ctx, sq.Eq{"account_id": account.ID}, page)
+			require.NoError(t, err)
+			require.Len(t, results, 2, "paginator should be preserved through WithTx")
+			require.True(t, retPage.More)
+			return nil
+		})
+		require.NoError(t, err)
 	})
 
 	t.Run("WithTx keeps IDColumn", func(t *testing.T) {

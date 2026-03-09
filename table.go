@@ -25,8 +25,9 @@ type Record[T any, I ID] interface {
 // Table provides basic CRUD operations for database records.
 type Table[T any, P Record[T, I], I ID] struct {
 	*DB
-	Name     string
-	IDColumn string
+	Name      string
+	IDColumn  string
+	Paginator Paginator[P]
 }
 
 // helpers for setting timestamp fields
@@ -202,6 +203,18 @@ func (t *Table[T, P, I]) List(ctx context.Context, where sq.Sqlizer, orderBy []s
 	return records, nil
 }
 
+// ListPaged returns paginated records matching the condition.
+func (t *Table[T, P, I]) ListPaged(ctx context.Context, where sq.Sqlizer, page *Page) ([]P, *Page, error) {
+	q := t.SQL.Select("*").From(t.Name).Where(where)
+
+	result, q := t.Paginator.PrepareQuery(q, page)
+	if err := t.Query.GetAll(ctx, q, &result); err != nil {
+		return nil, nil, err
+	}
+	result = t.Paginator.PrepareResult(result, page)
+	return result, page, nil
+}
+
 // Iter returns an iterator for records matching the condition.
 func (t *Table[T, P, I]) Iter(ctx context.Context, where sq.Sqlizer, orderBy []string) (iter.Seq2[P, error], error) {
 	q := t.getListQuery(where, orderBy)
@@ -281,6 +294,16 @@ func (t *Table[T, P, I]) HardDeleteByID(ctx context.Context, id I) error {
 	return nil
 }
 
+// WithPaginator returns a table instance with the given paginator.
+func (t *Table[T, P, I]) WithPaginator(opts ...PaginatorOption) *Table[T, P, I] {
+	return &Table[T, P, I]{
+		DB:        t.DB,
+		Name:      t.Name,
+		IDColumn:  t.IDColumn,
+		Paginator: NewPaginator[P](opts...),
+	}
+}
+
 // WithTx returns a table instance bound to the given transaction.
 func (t *Table[T, P, I]) WithTx(tx pgx.Tx) *Table[T, P, I] {
 	return &Table[T, P, I]{
@@ -289,8 +312,9 @@ func (t *Table[T, P, I]) WithTx(tx pgx.Tx) *Table[T, P, I] {
 			SQL:   t.DB.SQL,
 			Query: t.DB.TxQuery(tx),
 		},
-		Name:     t.Name,
-		IDColumn: t.IDColumn,
+		Name:      t.Name,
+		IDColumn:  t.IDColumn,
+		Paginator: t.Paginator,
 	}
 }
 
