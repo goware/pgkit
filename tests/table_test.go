@@ -323,6 +323,146 @@ func TestTable(t *testing.T) {
 	})
 }
 
+func TestInsert(t *testing.T) {
+	truncateAllTables(t)
+
+	ctx := t.Context()
+	db := initDB(DB)
+
+	t.Run("Insert single", func(t *testing.T) {
+		account := &Account{Name: "Insert Account"}
+		err := db.Accounts.Insert(ctx, account)
+		require.NoError(t, err)
+		require.NotZero(t, account.ID, "ID should be set after insert")
+		require.NotZero(t, account.UpdatedAt, "UpdatedAt should be set")
+
+		// Verify in DB.
+		got, err := db.Accounts.GetByID(ctx, account.ID)
+		require.NoError(t, err)
+		require.Equal(t, account.Name, got.Name)
+	})
+
+	t.Run("Insert multiple", func(t *testing.T) {
+		account := &Account{Name: "Insert Multiple Account"}
+		err := db.Accounts.Insert(ctx, account)
+		require.NoError(t, err)
+
+		articles := []*Article{
+			{Author: "Author A", AccountID: account.ID},
+			{Author: "Author B", AccountID: account.ID},
+			{Author: "Author C", AccountID: account.ID},
+		}
+		err = db.Articles.Insert(ctx, articles...)
+		require.NoError(t, err)
+
+		for _, a := range articles {
+			require.NotZero(t, a.ID, "ID should be set after bulk insert")
+			require.NotZero(t, a.UpdatedAt, "UpdatedAt should be set")
+		}
+
+		// Verify all in DB.
+		for _, a := range articles {
+			got, err := db.Articles.GetByID(ctx, a.ID)
+			require.NoError(t, err)
+			require.Equal(t, a.Author, got.Author)
+		}
+	})
+
+	t.Run("Insert nil record", func(t *testing.T) {
+		err := db.Accounts.Insert(ctx, nil)
+		require.Error(t, err)
+	})
+
+	t.Run("Insert invalid record", func(t *testing.T) {
+		err := db.Accounts.Insert(ctx, &Account{Name: ""})
+		require.Error(t, err, "should fail validation")
+	})
+
+	t.Run("Insert zero records", func(t *testing.T) {
+		err := db.Accounts.Insert(ctx)
+		require.NoError(t, err, "inserting zero records should be a no-op")
+	})
+}
+
+func TestUpdate(t *testing.T) {
+	truncateAllTables(t)
+
+	ctx := t.Context()
+	db := initDB(DB)
+
+	t.Run("Update single", func(t *testing.T) {
+		account := &Account{Name: "Before Update"}
+		err := db.Accounts.Insert(ctx, account)
+		require.NoError(t, err)
+
+		account.Name = "After Update"
+		err = db.Accounts.Update(ctx, account)
+		require.NoError(t, err)
+
+		got, err := db.Accounts.GetByID(ctx, account.ID)
+		require.NoError(t, err)
+		require.Equal(t, "After Update", got.Name)
+	})
+
+	t.Run("Update multiple", func(t *testing.T) {
+		account := &Account{Name: "Update Multiple Account"}
+		err := db.Accounts.Insert(ctx, account)
+		require.NoError(t, err)
+
+		articles := []*Article{
+			{Author: "Original A", AccountID: account.ID},
+			{Author: "Original B", AccountID: account.ID},
+		}
+		err = db.Articles.Insert(ctx, articles...)
+		require.NoError(t, err)
+
+		articles[0].Author = "Updated A"
+		articles[1].Author = "Updated B"
+		err = db.Articles.Update(ctx, articles...)
+		require.NoError(t, err)
+
+		for _, a := range articles {
+			got, err := db.Articles.GetByID(ctx, a.ID)
+			require.NoError(t, err)
+			require.Equal(t, a.Author, got.Author)
+		}
+	})
+
+	t.Run("Update with zero ID fails", func(t *testing.T) {
+		err := db.Accounts.Update(ctx, &Account{Name: "No ID"})
+		require.Error(t, err, "should fail with zero ID")
+	})
+
+	t.Run("Update multiple with zero ID fails", func(t *testing.T) {
+		account := &Account{Name: "Update Zero ID Account"}
+		err := db.Accounts.Insert(ctx, account)
+		require.NoError(t, err)
+
+		err = db.Accounts.Update(ctx, account, &Account{Name: "No ID"})
+		require.Error(t, err, "should fail when any record has zero ID")
+	})
+
+	t.Run("Update nil record", func(t *testing.T) {
+		err := db.Accounts.Update(ctx, nil)
+		require.Error(t, err)
+	})
+
+	t.Run("Update invalid record", func(t *testing.T) {
+		account := &Account{Name: "Valid"}
+		err := db.Accounts.Insert(ctx, account)
+		require.NoError(t, err)
+
+		account.Name = ""
+		err = db.Accounts.Update(ctx, account)
+		require.Error(t, err, "should fail validation")
+	})
+
+	t.Run("Update zero records", func(t *testing.T) {
+		err := db.Accounts.Update(ctx)
+		require.NoError(t, err, "updating zero records should be a no-op")
+	})
+}
+
 func TestLockForUpdates(t *testing.T) {
 	truncateAllTables(t)
 

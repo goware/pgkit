@@ -43,6 +43,165 @@ type (
 	}
 )
 
+// Insert inserts one or more records. Sets CreatedAt and UpdatedAt timestamps if available.
+// Records are returned with their generated fields populated via RETURNING *.
+func (t *Table[T, P, I]) Insert(ctx context.Context, records ...P) error {
+	switch len(records) {
+	case 0:
+		return nil
+	case 1:
+		return t.insertOne(ctx, records[0])
+	default:
+		return t.insertAll(ctx, records)
+	}
+}
+
+func (t *Table[T, P, I]) insertOne(ctx context.Context, record P) error {
+	if record == nil {
+		return fmt.Errorf("record is nil")
+	}
+
+	if err := record.Validate(); err != nil {
+		return fmt.Errorf("validate record: %w", err)
+	}
+
+	now := time.Now().UTC()
+	if row, ok := any(record).(hasSetCreatedAt); ok {
+		row.SetCreatedAt(now)
+	}
+	if row, ok := any(record).(hasSetUpdatedAt); ok {
+		row.SetUpdatedAt(now)
+	}
+
+	q := t.SQL.
+		InsertRecord(record).
+		Into(t.Name).
+		Suffix("RETURNING *")
+
+	if err := t.Query.GetOne(ctx, q, record); err != nil {
+		return fmt.Errorf("insert record: %w", err)
+	}
+
+	return nil
+}
+
+func (t *Table[T, P, I]) insertAll(ctx context.Context, records []P) error {
+	now := time.Now().UTC()
+
+	for i, r := range records {
+		if r == nil {
+			return fmt.Errorf("record with index=%d is nil", i)
+		}
+
+		if err := r.Validate(); err != nil {
+			return fmt.Errorf("validate record: %w", err)
+		}
+
+		if row, ok := any(r).(hasSetCreatedAt); ok {
+			row.SetCreatedAt(now)
+		}
+		if row, ok := any(r).(hasSetUpdatedAt); ok {
+			row.SetUpdatedAt(now)
+		}
+	}
+
+	for start := 0; start < len(records); start += chunkSize {
+		end := start + chunkSize
+		if end > len(records) {
+			end = len(records)
+		}
+
+		chunk := records[start:end]
+		q := t.SQL.
+			InsertRecords(chunk).
+			Into(t.Name).
+			SuffixExpr(sq.Expr(" RETURNING *"))
+
+		if err := t.Query.GetAll(ctx, q, &chunk); err != nil {
+			return fmt.Errorf("insert records: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// Update updates one or more records by their ID. Sets UpdatedAt timestamp if available.
+// Returns an error if any record has a zero ID.
+func (t *Table[T, P, I]) Update(ctx context.Context, records ...P) error {
+	switch len(records) {
+	case 0:
+		return nil
+	case 1:
+		return t.updateOne(ctx, records[0])
+	default:
+		return t.updateAll(ctx, records)
+	}
+}
+
+func (t *Table[T, P, I]) updateOne(ctx context.Context, record P) error {
+	if record == nil {
+		return fmt.Errorf("record is nil")
+	}
+
+	var zero I
+	if record.GetID() == zero {
+		return fmt.Errorf("update record: ID is zero")
+	}
+
+	if err := record.Validate(); err != nil {
+		return fmt.Errorf("validate record: %w", err)
+	}
+
+	if row, ok := any(record).(hasSetUpdatedAt); ok {
+		row.SetUpdatedAt(time.Now().UTC())
+	}
+
+	q := t.SQL.UpdateRecord(record, sq.Eq{t.IDColumn: record.GetID()}, t.Name)
+	if _, err := t.Query.Exec(ctx, q); err != nil {
+		return fmt.Errorf("update record: %w", err)
+	}
+
+	return nil
+}
+
+func (t *Table[T, P, I]) updateAll(ctx context.Context, records []P) error {
+	now := time.Now().UTC()
+
+	queries := make(Queries, 0, len(records))
+	var zero I
+
+	for i, r := range records {
+		if r == nil {
+			return fmt.Errorf("record with index=%d is nil", i)
+		}
+
+		if r.GetID() == zero {
+			return fmt.Errorf("update record with index=%d: ID is zero", i)
+		}
+
+		if err := r.Validate(); err != nil {
+			return fmt.Errorf("validate record: %w", err)
+		}
+
+		if row, ok := any(r).(hasSetUpdatedAt); ok {
+			row.SetUpdatedAt(now)
+		}
+
+		queries.Add(t.SQL.
+			UpdateRecord(r, sq.Eq{t.IDColumn: r.GetID()}, t.Name).
+			SuffixExpr(sq.Expr(" RETURNING *")),
+		)
+	}
+
+	for chunk := range slices.Chunk(queries, chunkSize) {
+		if _, err := t.Query.BatchExec(ctx, chunk); err != nil {
+			return fmt.Errorf("update records: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // Save inserts or updates given records. Auto-detects insert vs update by ID based on zerovalue of ID from GetID() method on record.
 func (t *Table[T, P, I]) Save(ctx context.Context, records ...P) error {
 	switch len(records) {
