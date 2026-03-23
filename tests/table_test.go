@@ -182,6 +182,19 @@ func TestTable(t *testing.T) {
 			require.Equal(t, firstArticle.ID, article.ID, "DeletedAt should be set")
 			require.NotNil(t, article.DeletedAt, "DeletedAt should be set")
 
+			// Restore first article.
+			err = tx.Articles.RestoreByID(ctx, firstArticle.ID)
+			require.NoError(t, err, "RestoreByID failed")
+
+			// Check if article is restored.
+			article, err = tx.Articles.GetByID(ctx, firstArticle.ID)
+			require.NoError(t, err, "GetByID failed after restore")
+			require.Nil(t, article.DeletedAt, "DeletedAt should be nil after restore")
+
+			// Soft-delete again for the hard-delete test.
+			err = tx.Articles.DeleteByID(ctx, firstArticle.ID)
+			require.NoError(t, err, "DeleteByID failed")
+
 			// Hard-delete first article.
 			err = tx.Articles.HardDeleteByID(ctx, firstArticle.ID)
 			require.NoError(t, err, "HardDeleteByID failed")

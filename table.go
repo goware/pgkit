@@ -30,18 +30,34 @@ type Table[T any, P Record[T, I], I ID] struct {
 	Paginator Paginator[P]
 }
 
-// helpers for setting timestamp fields
-type (
-	hasSetCreatedAt interface {
-		SetCreatedAt(time.Time)
-	}
-	hasSetUpdatedAt interface {
-		SetUpdatedAt(time.Time)
-	}
-	hasSetDeletedAt interface {
-		SetDeletedAt(time.Time)
-	}
-)
+// HasSetCreatedAt is implemented by records that track creation time.
+// Insert will automatically call SetCreatedAt with the current UTC time.
+type HasSetCreatedAt interface {
+	SetCreatedAt(time.Time)
+}
+
+// HasSetUpdatedAt is implemented by records that track update time.
+// Insert, Update, and Save will automatically call SetUpdatedAt with the current UTC time.
+type HasSetUpdatedAt interface {
+	SetUpdatedAt(time.Time)
+}
+
+// HasSetDeletedAt is implemented by records that support soft delete.
+// DeleteByID will call SetDeletedAt with the current UTC time to soft-delete,
+// and RestoreByID will call SetDeletedAt with a zero time.Time{} to restore.
+//
+// Implementations should treat a zero time as a restore (clear the timestamp):
+//
+//	func (r *MyRecord) SetDeletedAt(t time.Time) {
+//		if t.IsZero() {
+//			r.DeletedAt = nil // restore: clear the timestamp
+//			return
+//		}
+//		r.DeletedAt = &t // soft delete: set the timestamp
+//	}
+type HasSetDeletedAt interface {
+	SetDeletedAt(time.Time)
+}
 
 // Insert inserts one or more records. Sets CreatedAt and UpdatedAt timestamps if available.
 // Records are returned with their generated fields populated via RETURNING *.
@@ -66,10 +82,10 @@ func (t *Table[T, P, I]) insertOne(ctx context.Context, record P) error {
 	}
 
 	now := time.Now().UTC()
-	if row, ok := any(record).(hasSetCreatedAt); ok {
+	if row, ok := any(record).(HasSetCreatedAt); ok {
 		row.SetCreatedAt(now)
 	}
-	if row, ok := any(record).(hasSetUpdatedAt); ok {
+	if row, ok := any(record).(HasSetUpdatedAt); ok {
 		row.SetUpdatedAt(now)
 	}
 
@@ -97,10 +113,10 @@ func (t *Table[T, P, I]) insertAll(ctx context.Context, records []P) error {
 			return fmt.Errorf("validate record: %w", err)
 		}
 
-		if row, ok := any(r).(hasSetCreatedAt); ok {
+		if row, ok := any(r).(HasSetCreatedAt); ok {
 			row.SetCreatedAt(now)
 		}
-		if row, ok := any(r).(hasSetUpdatedAt); ok {
+		if row, ok := any(r).(HasSetUpdatedAt); ok {
 			row.SetUpdatedAt(now)
 		}
 	}
@@ -152,7 +168,7 @@ func (t *Table[T, P, I]) updateOne(ctx context.Context, record P) error {
 		return fmt.Errorf("validate record: %w", err)
 	}
 
-	if row, ok := any(record).(hasSetUpdatedAt); ok {
+	if row, ok := any(record).(HasSetUpdatedAt); ok {
 		row.SetUpdatedAt(time.Now().UTC())
 	}
 
@@ -183,7 +199,7 @@ func (t *Table[T, P, I]) updateAll(ctx context.Context, records []P) error {
 			return fmt.Errorf("validate record: %w", err)
 		}
 
-		if row, ok := any(r).(hasSetUpdatedAt); ok {
+		if row, ok := any(r).(HasSetUpdatedAt); ok {
 			row.SetUpdatedAt(now)
 		}
 
@@ -223,7 +239,7 @@ func (t *Table[T, P, I]) saveOne(ctx context.Context, record P) error {
 		return fmt.Errorf("validate record: %w", err)
 	}
 
-	if row, ok := any(record).(hasSetUpdatedAt); ok {
+	if row, ok := any(record).(HasSetUpdatedAt); ok {
 		row.SetUpdatedAt(time.Now().UTC())
 	}
 
@@ -270,13 +286,13 @@ func (t *Table[T, P, I]) saveAll(ctx context.Context, records []P) error {
 			return fmt.Errorf("validate record: %w", err)
 		}
 
-		if row, ok := any(r).(hasSetUpdatedAt); ok {
+		if row, ok := any(r).(HasSetUpdatedAt); ok {
 			row.SetUpdatedAt(now)
 		}
 
 		var zero I
 		if r.GetID() == zero {
-			if row, ok := any(r).(hasSetCreatedAt); ok {
+			if row, ok := any(r).(HasSetCreatedAt); ok {
 				row.SetCreatedAt(now)
 			}
 
@@ -432,7 +448,7 @@ func (t *Table[T, P, I]) DeleteByID(ctx context.Context, id I) error {
 	}
 
 	// Soft delete.
-	if row, ok := any(record).(hasSetDeletedAt); ok {
+	if row, ok := any(record).(HasSetDeletedAt); ok {
 		row.SetDeletedAt(time.Now().UTC())
 		if err := t.Save(ctx, record); err != nil {
 			return fmt.Errorf("soft delete: %w", err)
@@ -442,6 +458,27 @@ func (t *Table[T, P, I]) DeleteByID(ctx context.Context, id I) error {
 
 	// Hard delete for tables without timestamps.
 	return t.HardDeleteByID(ctx, id)
+}
+
+// RestoreByID restores a soft-deleted record by ID by clearing its DeletedAt timestamp.
+// Returns an error if the record does not implement .SetDeletedAt().
+func (t *Table[T, P, I]) RestoreByID(ctx context.Context, id I) error {
+	record, err := t.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("restore: %w", err)
+	}
+
+	row, ok := any(record).(HasSetDeletedAt)
+	if !ok {
+		return fmt.Errorf("restore: record does not support soft delete")
+	}
+
+	row.SetDeletedAt(time.Time{})
+	if err := t.Save(ctx, record); err != nil {
+		return fmt.Errorf("restore: %w", err)
+	}
+
+	return nil
 }
 
 // HardDeleteByID permanently deletes a record by ID.

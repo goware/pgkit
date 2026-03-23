@@ -40,7 +40,13 @@ type Article struct {
 
 func (a *Article) GetID() uint64            { return a.ID }
 func (a *Article) SetUpdatedAt(t time.Time) { a.UpdatedAt = t }
-func (a *Article) SetDeletedAt(t time.Time) { a.DeletedAt = &t }
+func (a *Article) SetDeletedAt(t time.Time) {
+	if t.IsZero() {
+		a.DeletedAt = nil
+		return
+	}
+	a.DeletedAt = &t
+}
 
 func (a *Article) Validate() error {
 	if a.Author == "" {
@@ -71,7 +77,13 @@ type Review struct {
 
 func (r *Review) GetID() uint64            { return r.ID }
 func (r *Review) SetUpdatedAt(t time.Time) { r.UpdatedAt = t }
-func (r *Review) SetDeletedAt(t time.Time) { r.DeletedAt = &t }
+func (r *Review) SetDeletedAt(t time.Time) {
+	if t.IsZero() {
+		r.DeletedAt = nil
+		return
+	}
+	r.DeletedAt = &t
+}
 
 func (r *Review) Validate() error {
 	if len(r.Comment) < 3 {
