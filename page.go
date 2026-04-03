@@ -259,18 +259,22 @@ func (p Paginator[T]) PrepareRaw(q string, args []any, page *Page) ([]T, string,
 
 	limit, offset := page.Limit(), page.Offset()
 
-	q = q + " ORDER BY " + strings.Join(p.getOrder(page), ", ")
+	if order := p.getOrder(page); len(order) > 0 {
+		q = q + " ORDER BY " + strings.Join(order, ", ")
+	}
 	q = q + " LIMIT @limit OFFSET @offset"
 
-	for i, arg := range args {
+	injected := false
+	for _, arg := range args {
 		if existing, ok := arg.(pgx.NamedArgs); ok {
 			existing["limit"] = limit + 1
 			existing["offset"] = offset
+			injected = true
 			break
 		}
-		if i == len(args)-1 {
-			args = append(args, pgx.NamedArgs{"limit": limit + 1, "offset": offset})
-		}
+	}
+	if !injected {
+		args = append(args, pgx.NamedArgs{"limit": limit + 1, "offset": offset})
 	}
 
 	return make([]T, 0, limit+1), q, args
