@@ -23,6 +23,7 @@ type Record[T any, I ID] interface {
 }
 
 // Table provides basic CRUD operations for database records.
+// NOTICE: Experimental. Table and its methods are subject to change.
 type Table[T any, P Record[T, I], I ID] struct {
 	*DB
 	Name      string
