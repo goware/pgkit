@@ -174,8 +174,9 @@ func TestTable(t *testing.T) {
 			}
 
 			// Soft-delete first article.
-			err = tx.Articles.DeleteByID(ctx, firstArticle.ID)
+			ok, err := tx.Articles.DeleteByID(ctx, firstArticle.ID)
 			require.NoError(t, err, "DeleteByID failed")
+			require.True(t, ok, "DeleteByID should return true for existing record")
 
 			// Check if article is soft-deleted.
 			article, err := tx.Articles.GetByID(ctx, firstArticle.ID)
@@ -193,12 +194,14 @@ func TestTable(t *testing.T) {
 			require.Nil(t, article.DeletedAt, "DeletedAt should be nil after restore")
 
 			// Soft-delete again for the hard-delete test.
-			err = tx.Articles.DeleteByID(ctx, firstArticle.ID)
+			ok, err = tx.Articles.DeleteByID(ctx, firstArticle.ID)
 			require.NoError(t, err, "DeleteByID failed")
+			require.True(t, ok, "DeleteByID should return true for existing record")
 
 			// Hard-delete first article.
-			err = tx.Articles.HardDeleteByID(ctx, firstArticle.ID)
+			ok, err = tx.Articles.HardDeleteByID(ctx, firstArticle.ID)
 			require.NoError(t, err, "HardDeleteByID failed")
+			require.True(t, ok, "HardDeleteByID should return true for existing record")
 
 			// Check if article is hard-deleted.
 			article, err = tx.Articles.GetByID(ctx, firstArticle.ID)
@@ -321,11 +324,13 @@ func TestTable(t *testing.T) {
 
 		err = pgx.BeginFunc(ctx, db.Conn, func(pgTx pgx.Tx) error {
 			txTable := db.Articles.Table.WithTx(pgTx)
-			if err := txTable.HardDeleteByID(ctx, article.ID); err != nil {
+			ok, err := txTable.HardDeleteByID(ctx, article.ID)
+			if err != nil {
 				return err
 			}
+			require.True(t, ok, "HardDeleteByID should return true for existing record")
 
-			_, err := txTable.GetByID(ctx, article.ID)
+			_, err = txTable.GetByID(ctx, article.ID)
 			require.Error(t, err, "article should be deleted inside tx")
 
 			return nil
@@ -410,8 +415,9 @@ func TestUpdate(t *testing.T) {
 		require.NoError(t, err)
 
 		account.Name = "After Update"
-		err = db.Accounts.Update(ctx, account)
+		ok, err := db.Accounts.Update(ctx, account)
 		require.NoError(t, err)
+		require.True(t, ok, "should return true for existing record")
 
 		got, err := db.Accounts.GetByID(ctx, account.ID)
 		require.NoError(t, err)
@@ -432,8 +438,9 @@ func TestUpdate(t *testing.T) {
 
 		articles[0].Author = "Updated A"
 		articles[1].Author = "Updated B"
-		err = db.Articles.Update(ctx, articles...)
+		ok, err := db.Articles.Update(ctx, articles...)
 		require.NoError(t, err)
+		require.True(t, ok, "should return true when records exist")
 
 		for _, a := range articles {
 			got, err := db.Articles.GetByID(ctx, a.ID)
@@ -443,7 +450,7 @@ func TestUpdate(t *testing.T) {
 	})
 
 	t.Run("Update with zero ID fails", func(t *testing.T) {
-		err := db.Accounts.Update(ctx, &Account{Name: "No ID"})
+		_, err := db.Accounts.Update(ctx, &Account{Name: "No ID"})
 		require.Error(t, err, "should fail with zero ID")
 	})
 
@@ -452,12 +459,12 @@ func TestUpdate(t *testing.T) {
 		err := db.Accounts.Insert(ctx, account)
 		require.NoError(t, err)
 
-		err = db.Accounts.Update(ctx, account, &Account{Name: "No ID"})
+		_, err = db.Accounts.Update(ctx, account, &Account{Name: "No ID"})
 		require.Error(t, err, "should fail when any record has zero ID")
 	})
 
 	t.Run("Update nil record", func(t *testing.T) {
-		err := db.Accounts.Update(ctx, nil)
+		_, err := db.Accounts.Update(ctx, nil)
 		require.Error(t, err)
 	})
 
@@ -467,13 +474,148 @@ func TestUpdate(t *testing.T) {
 		require.NoError(t, err)
 
 		account.Name = ""
-		err = db.Accounts.Update(ctx, account)
+		_, err = db.Accounts.Update(ctx, account)
 		require.Error(t, err, "should fail validation")
 	})
 
 	t.Run("Update zero records", func(t *testing.T) {
-		err := db.Accounts.Update(ctx)
+		ok, err := db.Accounts.Update(ctx)
 		require.NoError(t, err, "updating zero records should be a no-op")
+		require.False(t, ok, "should return false for zero records")
+	})
+
+	t.Run("Update non-existent record returns false", func(t *testing.T) {
+		account := &Account{ID: 999999, Name: "Ghost"}
+		ok, err := db.Accounts.Update(ctx, account)
+		require.NoError(t, err)
+		require.False(t, ok, "should return false for non-existent record")
+	})
+}
+
+func TestDeleteByID(t *testing.T) {
+	truncateAllTables(t)
+
+	ctx := t.Context()
+	db := initDB(DB)
+
+	account := &Account{Name: "DeleteByID Account"}
+	err := db.Accounts.Insert(ctx, account)
+	require.NoError(t, err)
+
+	t.Run("soft delete existing returns true", func(t *testing.T) {
+		article := &Article{Author: "Author", AccountID: account.ID}
+		err := db.Articles.Insert(ctx, article)
+		require.NoError(t, err)
+
+		ok, err := db.Articles.DeleteByID(ctx, article.ID)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		got, err := db.Articles.GetByID(ctx, article.ID)
+		require.NoError(t, err)
+		require.NotNil(t, got.DeletedAt)
+	})
+
+	t.Run("soft delete missing returns false", func(t *testing.T) {
+		ok, err := db.Articles.DeleteByID(ctx, 999999)
+		require.NoError(t, err)
+		require.False(t, ok)
+	})
+
+	t.Run("soft delete already-deleted returns false", func(t *testing.T) {
+		article := &Article{Author: "Double Delete", AccountID: account.ID}
+		err := db.Articles.Insert(ctx, article)
+		require.NoError(t, err)
+
+		ok, err := db.Articles.DeleteByID(ctx, article.ID)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		// Hard-delete so GetByID returns ErrNoRows.
+		_, err = db.Articles.HardDeleteByID(ctx, article.ID)
+		require.NoError(t, err)
+
+		ok, err = db.Articles.DeleteByID(ctx, article.ID)
+		require.NoError(t, err)
+		require.False(t, ok)
+	})
+
+	t.Run("hard delete existing returns true", func(t *testing.T) {
+		// Account has no SetDeletedAt — DeleteByID falls through to hard delete.
+		acct := &Account{Name: "HardDelete via DeleteByID"}
+		err := db.Accounts.Insert(ctx, acct)
+		require.NoError(t, err)
+
+		ok, err := db.Accounts.DeleteByID(ctx, acct.ID)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		_, err = db.Accounts.GetByID(ctx, acct.ID)
+		require.Error(t, err)
+	})
+
+	t.Run("hard delete missing returns false", func(t *testing.T) {
+		ok, err := db.Accounts.DeleteByID(ctx, 999999)
+		require.NoError(t, err)
+		require.False(t, ok)
+	})
+}
+
+func TestHardDeleteByID(t *testing.T) {
+	truncateAllTables(t)
+
+	ctx := t.Context()
+	db := initDB(DB)
+
+	t.Run("existing record returns true", func(t *testing.T) {
+		account := &Account{Name: "HardDelete Found"}
+		err := db.Accounts.Insert(ctx, account)
+		require.NoError(t, err)
+
+		ok, err := db.Accounts.HardDeleteByID(ctx, account.ID)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		_, err = db.Accounts.GetByID(ctx, account.ID)
+		require.Error(t, err)
+	})
+
+	t.Run("missing record returns false", func(t *testing.T) {
+		ok, err := db.Accounts.HardDeleteByID(ctx, 999999)
+		require.NoError(t, err)
+		require.False(t, ok)
+	})
+
+	t.Run("hard delete on soft-deletable record", func(t *testing.T) {
+		account := &Account{Name: "HardDelete Soft-Deletable"}
+		err := db.Accounts.Insert(ctx, account)
+		require.NoError(t, err)
+
+		article := &Article{Author: "Soft-Deletable", AccountID: account.ID}
+		err = db.Articles.Insert(ctx, article)
+		require.NoError(t, err)
+
+		// HardDeleteByID bypasses soft delete even on soft-deletable records.
+		ok, err := db.Articles.HardDeleteByID(ctx, article.ID)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		_, err = db.Articles.GetByID(ctx, article.ID)
+		require.Error(t, err, "should be permanently deleted")
+	})
+
+	t.Run("double hard delete returns false on second call", func(t *testing.T) {
+		account := &Account{Name: "Double HardDelete"}
+		err := db.Accounts.Insert(ctx, account)
+		require.NoError(t, err)
+
+		ok, err := db.Accounts.HardDeleteByID(ctx, account.ID)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		ok, err = db.Accounts.HardDeleteByID(ctx, account.ID)
+		require.NoError(t, err)
+		require.False(t, ok)
 	})
 }
 

@@ -139,11 +139,11 @@ func (t *Table[T, P, I]) insertAll(ctx context.Context, records []P) error {
 }
 
 // Update updates one or more records by their ID. Sets UpdatedAt timestamp if available.
-// Returns an error if any record has a zero ID.
-func (t *Table[T, P, I]) Update(ctx context.Context, records ...P) error {
+// Returns (true, nil) if at least one row was updated, (false, nil) if no rows matched.
+func (t *Table[T, P, I]) Update(ctx context.Context, records ...P) (bool, error) {
 	switch len(records) {
 	case 0:
-		return nil
+		return false, nil
 	case 1:
 		return t.updateOne(ctx, records[0])
 	default:
@@ -151,18 +151,18 @@ func (t *Table[T, P, I]) Update(ctx context.Context, records ...P) error {
 	}
 }
 
-func (t *Table[T, P, I]) updateOne(ctx context.Context, record P) error {
+func (t *Table[T, P, I]) updateOne(ctx context.Context, record P) (bool, error) {
 	if record == nil {
-		return fmt.Errorf("record is nil")
+		return false, fmt.Errorf("record is nil")
 	}
 
 	var zero I
 	if record.GetID() == zero {
-		return fmt.Errorf("update record: ID is zero")
+		return false, fmt.Errorf("update record: ID is zero")
 	}
 
 	if err := record.Validate(); err != nil {
-		return fmt.Errorf("validate record: %w", err)
+		return false, fmt.Errorf("validate record: %w", err)
 	}
 
 	if row, ok := any(record).(HasSetUpdatedAt); ok {
@@ -170,14 +170,15 @@ func (t *Table[T, P, I]) updateOne(ctx context.Context, record P) error {
 	}
 
 	q := t.SQL.UpdateRecord(record, sq.Eq{t.IDColumn: record.GetID()}, t.Name)
-	if _, err := t.Query.Exec(ctx, q); err != nil {
-		return fmt.Errorf("update record: %w", err)
+	tag, err := t.Query.Exec(ctx, q)
+	if err != nil {
+		return false, fmt.Errorf("update record: %w", err)
 	}
 
-	return nil
+	return tag.RowsAffected() > 0, nil
 }
 
-func (t *Table[T, P, I]) updateAll(ctx context.Context, records []P) error {
+func (t *Table[T, P, I]) updateAll(ctx context.Context, records []P) (bool, error) {
 	now := time.Now().UTC()
 
 	queries := make(Queries, 0, len(records))
@@ -185,15 +186,15 @@ func (t *Table[T, P, I]) updateAll(ctx context.Context, records []P) error {
 
 	for i, r := range records {
 		if r == nil {
-			return fmt.Errorf("record with index=%d is nil", i)
+			return false, fmt.Errorf("record with index=%d is nil", i)
 		}
 
 		if r.GetID() == zero {
-			return fmt.Errorf("update record with index=%d: ID is zero", i)
+			return false, fmt.Errorf("update record with index=%d: ID is zero", i)
 		}
 
 		if err := r.Validate(); err != nil {
-			return fmt.Errorf("validate record: %w", err)
+			return false, fmt.Errorf("validate record: %w", err)
 		}
 
 		if row, ok := any(r).(HasSetUpdatedAt); ok {
@@ -206,13 +207,20 @@ func (t *Table[T, P, I]) updateAll(ctx context.Context, records []P) error {
 		)
 	}
 
+	var affected bool
 	for chunk := range slices.Chunk(queries, chunkSize) {
-		if _, err := t.Query.BatchExec(ctx, chunk); err != nil {
-			return fmt.Errorf("update records: %w", err)
+		tags, err := t.Query.BatchExec(ctx, chunk)
+		if err != nil {
+			return false, fmt.Errorf("update records: %w", err)
+		}
+		for _, tag := range tags {
+			if tag.RowsAffected() > 0 {
+				affected = true
+			}
 		}
 	}
 
-	return nil
+	return affected, nil
 }
 
 // Save inserts or updates given records. Auto-detects insert vs update by ID based on zerovalue of ID from GetID() method on record.
@@ -450,19 +458,23 @@ func (t *Table[T, P, I]) Count(ctx context.Context, where sq.Sqlizer) (uint64, e
 }
 
 // DeleteByID deletes a record by ID. Uses soft delete if .SetDeletedAt() method exists.
-func (t *Table[T, P, I]) DeleteByID(ctx context.Context, id I) error {
+// Returns (true, nil) if a row was deleted, (false, nil) if no row matched.
+func (t *Table[T, P, I]) DeleteByID(ctx context.Context, id I) (bool, error) {
 	record, err := t.GetByID(ctx, id)
 	if err != nil {
-		return fmt.Errorf("delete: %w", err)
+		if errors.Is(err, ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("delete: %w", err)
 	}
 
 	// Soft delete.
 	if row, ok := any(record).(HasSetDeletedAt); ok {
 		row.SetDeletedAt(time.Now().UTC())
 		if err := t.Save(ctx, record); err != nil {
-			return fmt.Errorf("soft delete: %w", err)
+			return false, fmt.Errorf("soft delete: %w", err)
 		}
-		return nil
+		return true, nil
 	}
 
 	// Hard delete for tables without timestamps.
@@ -491,12 +503,14 @@ func (t *Table[T, P, I]) RestoreByID(ctx context.Context, id I) error {
 }
 
 // HardDeleteByID permanently deletes a record by ID.
-func (t *Table[T, P, I]) HardDeleteByID(ctx context.Context, id I) error {
+// Returns (true, nil) if a row was deleted, (false, nil) if no row matched.
+func (t *Table[T, P, I]) HardDeleteByID(ctx context.Context, id I) (bool, error) {
 	q := t.SQL.Delete(t.Name).Where(sq.Eq{t.IDColumn: id})
-	if _, err := t.Query.Exec(ctx, q); err != nil {
-		return fmt.Errorf("hard delete: %w", err)
+	tag, err := t.Query.Exec(ctx, q)
+	if err != nil {
+		return false, fmt.Errorf("hard delete: %w", err)
 	}
-	return nil
+	return tag.RowsAffected() > 0, nil
 }
 
 // WithPaginator returns a table instance with the given paginator.
