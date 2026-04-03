@@ -379,6 +379,9 @@ func (t *Table[T, P, I]) List(ctx context.Context, where sq.Sqlizer, orderBy []s
 
 // ListPaged returns paginated records matching the condition.
 func (t *Table[T, P, I]) ListPaged(ctx context.Context, where sq.Sqlizer, page *Page) ([]P, *Page, error) {
+	if page == nil {
+		page = &Page{}
+	}
 	q := t.SQL.Select("*").From(t.Name).Where(where)
 
 	result, q := t.Paginator.PrepareQuery(q, page)
