@@ -9,6 +9,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/goware/pgkit/v2"
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -517,7 +518,7 @@ func TestLockForUpdates(t *testing.T) {
 				defer wg.Done()
 
 				reviews, err := db.Reviews.DequeueForProcessing(ctx, 10)
-				require.NoError(t, err, "dequeue reviews")
+				assert.NoError(t, err, "dequeue reviews")
 
 				var localIDs []uint64
 				for _, review := range reviews {

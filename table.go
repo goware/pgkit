@@ -382,6 +382,10 @@ func (t *Table[T, P, I]) ListPaged(ctx context.Context, where sq.Sqlizer, page *
 	if page == nil {
 		page = &Page{}
 	}
+	// Ensure deterministic ordering for stable pagination.
+	if len(page.Sort) == 0 && page.Column == "" && len(t.Paginator.settings.Sort) == 0 {
+		page.Sort = []Sort{{Column: t.IDColumn, Order: Asc}}
+	}
 	q := t.SQL.Select("*").From(t.Name).Where(where)
 
 	result, q := t.Paginator.PrepareQuery(q, page)
@@ -595,7 +599,14 @@ func (t *Table[T, P, I]) lockForUpdatesWithTx(ctx context.Context, pgTx pgx.Tx, 
 
 	updateFn(records)
 
+	now := time.Now().UTC()
 	for _, record := range records {
+		if err := record.Validate(); err != nil {
+			return fmt.Errorf("validate record after update: %w", err)
+		}
+		if row, ok := any(record).(HasSetUpdatedAt); ok {
+			row.SetUpdatedAt(now)
+		}
 		q := t.SQL.UpdateRecord(record, sq.Eq{t.IDColumn: record.GetID()}, t.Name)
 		if _, err := txQuery.Exec(ctx, q); err != nil {
 			return fmt.Errorf("update record: %w", err)

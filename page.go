@@ -93,16 +93,21 @@ func NewPage(size, page uint32, sort ...Sort) *Page {
 
 func (p *Page) SetDefaults(o *PaginatorSettings) {
 	if o == nil {
-		o = &PaginatorSettings{
-			DefaultSize: DefaultPageSize,
-			MaxSize:     MaxPageSize,
-		}
+		o = &PaginatorSettings{}
+	}
+	defaultSize := o.DefaultSize
+	if defaultSize == 0 {
+		defaultSize = DefaultPageSize
+	}
+	maxSize := o.MaxSize
+	if maxSize == 0 {
+		maxSize = MaxPageSize
 	}
 	if p.Size == 0 {
-		p.Size = o.DefaultSize
+		p.Size = defaultSize
 	}
-	if p.Size > o.MaxSize {
-		p.Size = o.MaxSize
+	if p.Size > maxSize {
+		p.Size = maxSize
 	}
 	if p.Page == 0 {
 		p.Page = 1
