@@ -122,10 +122,7 @@ func (t *Table[T, P, I]) insertAll(ctx context.Context, records []P) error {
 	}
 
 	for start := 0; start < len(records); start += chunkSize {
-		end := start + chunkSize
-		if end > len(records) {
-			end = len(records)
-		}
+		end := min(start+chunkSize, len(records))
 
 		chunk := records[start:end]
 		q := t.SQL.
@@ -239,13 +236,18 @@ func (t *Table[T, P, I]) saveOne(ctx context.Context, record P) error {
 		return fmt.Errorf("validate record: %w", err)
 	}
 
+	now := time.Now().UTC()
 	if row, ok := any(record).(HasSetUpdatedAt); ok {
-		row.SetUpdatedAt(time.Now().UTC())
+		row.SetUpdatedAt(now)
 	}
 
 	// Insert
 	var zero I
 	if record.GetID() == zero {
+		if row, ok := any(record).(HasSetCreatedAt); ok {
+			row.SetCreatedAt(now)
+		}
+
 		q := t.SQL.
 			InsertRecord(record).
 			Into(t.Name).
@@ -300,7 +302,7 @@ func (t *Table[T, P, I]) saveAll(ctx context.Context, records []P) error {
 			insertIndices = append(insertIndices, i) // remember index
 		} else {
 			updateQueries.Add(t.SQL.
-				UpdateRecord(r, sq.Eq{"id": r.GetID()}, t.Name).
+				UpdateRecord(r, sq.Eq{t.IDColumn: r.GetID()}, t.Name).
 				SuffixExpr(sq.Expr(" RETURNING *")),
 			)
 		}
@@ -308,10 +310,7 @@ func (t *Table[T, P, I]) saveAll(ctx context.Context, records []P) error {
 
 	// Handle inserts in chunks, has to be done manually, slices.Chunk does not return index :/
 	for start := 0; start < len(insertRecords); start += chunkSize {
-		end := start + chunkSize
-		if end > len(insertRecords) {
-			end = len(insertRecords)
-		}
+		end := min(start+chunkSize, len(insertRecords))
 
 		chunk := insertRecords[start:end]
 		q := t.SQL.
@@ -411,6 +410,9 @@ func (t *Table[T, P, I]) Iter(ctx context.Context, where sq.Sqlizer, orderBy []s
 			if !yield(&record, nil) {
 				return
 			}
+		}
+		if err := rows.Err(); err != nil {
+			yield(nil, err)
 		}
 	}, nil
 }
@@ -552,11 +554,12 @@ func (t *Table[T, P, I]) LockForUpdate(ctx context.Context, where sq.Sqlizer, or
 // to "processing" and return early, then process asynchronously. Use defer LockForUpdate()
 // to update status to "completed" or "failed".
 func (t *Table[T, P, I]) LockForUpdates(ctx context.Context, where sq.Sqlizer, orderBy []string, limit uint64, updateFn func(records []P)) error {
-	// Check if we're already in a transaction
+	// Reuse existing transaction if available.
 	if t.DB.Query.Tx != nil {
 		if err := t.lockForUpdatesWithTx(ctx, t.DB.Query.Tx, where, orderBy, limit, updateFn); err != nil {
 			return fmt.Errorf("lock for update (with tx): %w", err)
 		}
+		return nil
 	}
 
 	return pgx.BeginFunc(ctx, t.DB.Conn, func(pgTx pgx.Tx) error {
