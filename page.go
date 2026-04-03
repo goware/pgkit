@@ -93,16 +93,21 @@ func NewPage(size, page uint32, sort ...Sort) *Page {
 
 func (p *Page) SetDefaults(o *PaginatorSettings) {
 	if o == nil {
-		o = &PaginatorSettings{
-			DefaultSize: DefaultPageSize,
-			MaxSize:     MaxPageSize,
-		}
+		o = &PaginatorSettings{}
+	}
+	defaultSize := o.DefaultSize
+	if defaultSize == 0 {
+		defaultSize = DefaultPageSize
+	}
+	maxSize := o.MaxSize
+	if maxSize == 0 {
+		maxSize = MaxPageSize
 	}
 	if p.Size == 0 {
-		p.Size = o.DefaultSize
+		p.Size = defaultSize
 	}
-	if p.Size > o.MaxSize {
-		p.Size = o.MaxSize
+	if p.Size > maxSize {
+		p.Size = maxSize
 	}
 	if p.Page == 0 {
 		p.Page = 1
@@ -254,18 +259,22 @@ func (p Paginator[T]) PrepareRaw(q string, args []any, page *Page) ([]T, string,
 
 	limit, offset := page.Limit(), page.Offset()
 
-	q = q + " ORDER BY " + strings.Join(p.getOrder(page), ", ")
+	if order := p.getOrder(page); len(order) > 0 {
+		q = q + " ORDER BY " + strings.Join(order, ", ")
+	}
 	q = q + " LIMIT @limit OFFSET @offset"
 
-	for i, arg := range args {
+	injected := false
+	for _, arg := range args {
 		if existing, ok := arg.(pgx.NamedArgs); ok {
 			existing["limit"] = limit + 1
 			existing["offset"] = offset
+			injected = true
 			break
 		}
-		if i == len(args)-1 {
-			args = append(args, pgx.NamedArgs{"limit": limit + 1, "offset": offset})
-		}
+	}
+	if !injected {
+		args = append(args, pgx.NamedArgs{"limit": limit + 1, "offset": offset})
 	}
 
 	return make([]T, 0, limit+1), q, args
