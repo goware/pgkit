@@ -22,7 +22,6 @@ func (w *Worker) Wait() {
 }
 
 func (w *Worker) ProcessReview(ctx context.Context, review *Review) (err error) {
-	w.wg.Add(1)
 	defer w.wg.Done()
 
 	defer func() {

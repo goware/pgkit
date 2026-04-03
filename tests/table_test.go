@@ -156,7 +156,7 @@ func TestTable(t *testing.T) {
 			}
 
 			// Verify we can load all articles with .ListByIDs()
-			articleIDs := make([]uint64, len(articles))
+			articleIDs := make([]uint64, 0, len(articles))
 			for _, article := range articles {
 				articleIDs = append(articleIDs, article.ID)
 			}
@@ -507,7 +507,8 @@ func TestLockForUpdates(t *testing.T) {
 		err = db.Reviews.Save(ctx, reviews...)
 		require.NoError(t, err, "create review")
 
-		var ids [][]uint64 = make([][]uint64, 10)
+		var mu sync.Mutex
+		var allIDs []uint64
 		var wg sync.WaitGroup
 
 		for range 10 {
@@ -518,17 +519,22 @@ func TestLockForUpdates(t *testing.T) {
 				reviews, err := db.Reviews.DequeueForProcessing(ctx, 10)
 				require.NoError(t, err, "dequeue reviews")
 
-				for i, review := range reviews {
+				var localIDs []uint64
+				for _, review := range reviews {
+					localIDs = append(localIDs, review.ID)
+					worker.wg.Add(1)
 					go worker.ProcessReview(ctx, review)
-
-					ids[i] = append(ids[i], review.ID)
 				}
+
+				mu.Lock()
+				allIDs = append(allIDs, localIDs...)
+				mu.Unlock()
 			}()
 		}
 		wg.Wait()
 
 		// Ensure that all reviews were picked up for processing exactly once.
-		uniqueIDs := slices.Concat(ids...)
+		uniqueIDs := slices.Clone(allIDs)
 		slices.Sort(uniqueIDs)
 		uniqueIDs = slices.Compact(uniqueIDs)
 		require.Equal(t, 100, len(uniqueIDs), "number of unique reviews picked up for processing should be 100")
