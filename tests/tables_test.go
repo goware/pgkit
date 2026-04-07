@@ -22,7 +22,6 @@ type reviewsTable struct {
 }
 
 func (t *reviewsTable) DequeueForProcessing(ctx context.Context, limit uint64) ([]*Review, error) {
-	var dequeued []*Review
 	where := sq.Eq{
 		"status":     ReviewStatusPending,
 		"deleted_at": nil,
@@ -31,16 +30,14 @@ func (t *reviewsTable) DequeueForProcessing(ctx context.Context, limit uint64) (
 		"created_at ASC",
 	}
 
-	err := t.LockForUpdates(ctx, where, orderBy, limit, func(reviews []*Review) {
-		now := time.Now().UTC()
-		for _, review := range reviews {
-			review.Status = ReviewStatusProcessing
-			review.ProcessedAt = &now
-		}
-		dequeued = reviews
+	now := time.Now().UTC()
+	dequeued, err := t.ClaimForUpdate(ctx, where, orderBy, limit, func(review *Review) error {
+		review.Status = ReviewStatusProcessing
+		review.ProcessedAt = &now
+		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("lock for updates: %w", err)
+		return nil, fmt.Errorf("claim for update: %w", err)
 	}
 
 	return dequeued, nil

@@ -1,6 +1,7 @@
 package pgkit_test
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"sync"
@@ -647,16 +648,16 @@ func TestIter(t *testing.T) {
 	require.Equal(t, total, count, "Iter should yield all rows")
 }
 
-func TestLockForUpdates(t *testing.T) {
+func TestClaimForUpdate(t *testing.T) {
 	truncateAllTables(t)
 
 	ctx := t.Context()
 	db := initDB(DB)
 	worker := &Worker{DB: db}
 
-	t.Run("TestLockForUpdates", func(t *testing.T) {
+	t.Run("concurrent dequeue", func(t *testing.T) {
 		// Create account.
-		account := &Account{Name: "LockForUpdates Account"}
+		account := &Account{Name: "ClaimForUpdate Account"}
 		err := db.Accounts.Save(ctx, account)
 		require.NoError(t, err, "Create account failed")
 
@@ -665,7 +666,7 @@ func TestLockForUpdates(t *testing.T) {
 		err = db.Articles.Save(ctx, article)
 		require.NoError(t, err, "Create article failed")
 
-		// Create 1000 reviews.
+		// Create 100 reviews.
 		reviews := make([]*Review, 100)
 		for i := range 100 {
 			reviews[i] = &Review{
@@ -679,7 +680,7 @@ func TestLockForUpdates(t *testing.T) {
 		require.NoError(t, err, "create review")
 
 		var mu sync.Mutex
-		var allIDs []uint64
+		var allReviews []*Review
 		var wg sync.WaitGroup
 
 		for range 10 {
@@ -687,28 +688,31 @@ func TestLockForUpdates(t *testing.T) {
 			go func() {
 				defer wg.Done()
 
-				reviews, err := db.Reviews.DequeueForProcessing(ctx, 10)
+				claimed, err := db.Reviews.DequeueForProcessing(ctx, 10)
 				assert.NoError(t, err, "dequeue reviews")
 
-				var localIDs []uint64
-				for _, review := range reviews {
-					localIDs = append(localIDs, review.ID)
+				// Verify returned records have mutated status.
+				for _, review := range claimed {
+					assert.Equal(t, ReviewStatusProcessing, review.Status, "returned record should be mutated")
 					worker.wg.Add(1)
 					go worker.ProcessReview(ctx, review)
 				}
 
 				mu.Lock()
-				allIDs = append(allIDs, localIDs...)
+				allReviews = append(allReviews, claimed...)
 				mu.Unlock()
 			}()
 		}
 		wg.Wait()
 
 		// Ensure that all reviews were picked up for processing exactly once.
-		uniqueIDs := slices.Clone(allIDs)
-		slices.Sort(uniqueIDs)
-		uniqueIDs = slices.Compact(uniqueIDs)
-		require.Equal(t, 100, len(uniqueIDs), "number of unique reviews picked up for processing should be 100")
+		allIDs := make([]uint64, len(allReviews))
+		for i, r := range allReviews {
+			allIDs[i] = r.ID
+		}
+		slices.Sort(allIDs)
+		allIDs = slices.Compact(allIDs)
+		require.Equal(t, 100, len(allIDs), "number of unique reviews picked up for processing should be 100")
 
 		// Wait for all reviews to be processed asynchronously.
 		worker.Wait()
@@ -717,5 +721,161 @@ func TestLockForUpdates(t *testing.T) {
 		count, err := db.Reviews.Count(ctx, sq.Eq{"status": ReviewStatusProcessing})
 		require.NoError(t, err, "count reviews")
 		require.Zero(t, count, "there should be no reviews stuck in 'processing' status")
+	})
+
+	t.Run("mutateFn error rolls back", func(t *testing.T) {
+		truncateAllTables(t)
+
+		account := &Account{Name: "Rollback Account"}
+		err := db.Accounts.Save(ctx, account)
+		require.NoError(t, err)
+
+		article := &Article{AccountID: account.ID, Author: "Author"}
+		err = db.Articles.Save(ctx, article)
+		require.NoError(t, err)
+
+		for i := range 5 {
+			err := db.Reviews.Save(ctx, &Review{
+				Comment:   fmt.Sprintf("Rollback comment %d", i),
+				AccountID: account.ID,
+				ArticleID: article.ID,
+				Status:    ReviewStatusPending,
+			})
+			require.NoError(t, err)
+		}
+
+		callCount := 0
+		records, err := db.Reviews.ClaimForUpdate(ctx, sq.Eq{"status": ReviewStatusPending}, nil, 5, func(review *Review) error {
+			callCount++
+			if callCount == 3 {
+				return fmt.Errorf("deliberate error on record 3")
+			}
+			review.Status = ReviewStatusProcessing
+			return nil
+		})
+		require.Error(t, err, "should return mutateFn error")
+		require.Nil(t, records, "no records on error")
+
+		// All reviews should still be pending (transaction rolled back).
+		count, err := db.Reviews.Count(ctx, sq.Eq{"status": ReviewStatusPending})
+		require.NoError(t, err)
+		require.Equal(t, uint64(5), count, "all reviews should still be pending after rollback")
+	})
+
+	t.Run("empty result returns nil slice", func(t *testing.T) {
+		truncateAllTables(t)
+
+		records, err := db.Reviews.ClaimForUpdate(ctx, sq.Eq{"status": ReviewStatusPending}, nil, 10, func(review *Review) error {
+			return nil
+		})
+		require.NoError(t, err)
+		require.Empty(t, records)
+	})
+
+	t.Run("ClaimOneForUpdate no match returns ErrNoRows", func(t *testing.T) {
+		truncateAllTables(t)
+
+		record, err := db.Reviews.ClaimOneForUpdate(ctx, sq.Eq{"status": ReviewStatusPending}, nil, func(review *Review) error {
+			return nil
+		})
+		require.ErrorIs(t, err, pgkit.ErrNoRows)
+		require.Nil(t, record)
+	})
+}
+
+func TestUpsert(t *testing.T) {
+	truncateAllTables(t)
+
+	ctx := t.Context()
+	db := initDB(DB)
+
+	// Add a unique index on accounts.name for upsert testing.
+	_, err := DB.Conn.Exec(ctx, "CREATE UNIQUE INDEX IF NOT EXISTS accounts_name_unique ON accounts (name)")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		DB.Conn.Exec(context.Background(), "DROP INDEX IF EXISTS accounts_name_unique") //nolint:errcheck
+	})
+
+	t.Run("insert new record", func(t *testing.T) {
+		truncateAllTables(t)
+
+		err := db.Accounts.Upsert(ctx, []string{"name"}, nil, &Account{Name: "Upsert New"})
+		require.NoError(t, err)
+
+		count, err := db.Accounts.Count(ctx, sq.Eq{"name": "Upsert New"})
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), count)
+	})
+
+	t.Run("DO NOTHING on conflict", func(t *testing.T) {
+		truncateAllTables(t)
+
+		original := &Account{Name: "DoNothing"}
+		err := db.Accounts.Insert(ctx, original)
+		require.NoError(t, err)
+
+		// Upsert with DO NOTHING — original should be preserved.
+		err = db.Accounts.Upsert(ctx, []string{"name"}, nil, &Account{Name: "DoNothing", Disabled: true})
+		require.NoError(t, err)
+
+		got, err := db.Accounts.GetByID(ctx, original.ID)
+		require.NoError(t, err)
+		require.False(t, got.Disabled, "original data should be preserved with DO NOTHING")
+
+		count, err := db.Accounts.Count(ctx, sq.Eq{"name": "DoNothing"})
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), count, "should not create duplicate")
+	})
+
+	t.Run("DO UPDATE on conflict", func(t *testing.T) {
+		truncateAllTables(t)
+
+		original := &Account{Name: "DoUpdate"}
+		err := db.Accounts.Insert(ctx, original)
+		require.NoError(t, err)
+		require.False(t, original.Disabled)
+
+		// Upsert with DO UPDATE SET disabled — should update disabled column.
+		err = db.Accounts.Upsert(ctx, []string{"name"}, []string{"disabled"}, &Account{Name: "DoUpdate", Disabled: true})
+		require.NoError(t, err)
+
+		got, err := db.Accounts.GetByID(ctx, original.ID)
+		require.NoError(t, err)
+		require.True(t, got.Disabled, "disabled should be updated on conflict")
+
+		count, err := db.Accounts.Count(ctx, sq.Eq{"name": "DoUpdate"})
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), count, "should not create duplicate")
+	})
+
+	t.Run("concurrent upserts no duplicates", func(t *testing.T) {
+		truncateAllTables(t)
+
+		var wg sync.WaitGroup
+		for i := range 10 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := db.Accounts.Upsert(ctx, []string{"name"}, []string{"disabled"}, &Account{Name: "ConcurrentUpsert", Disabled: i%2 == 0})
+				assert.NoError(t, err)
+			}()
+		}
+		wg.Wait()
+
+		count, err := db.Accounts.Count(ctx, sq.Eq{"name": "ConcurrentUpsert"})
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), count, "should have exactly one record after concurrent upserts")
+	})
+
+	t.Run("invalid conflict column", func(t *testing.T) {
+		err := db.Accounts.Upsert(ctx, []string{"nonexistent"}, nil, &Account{Name: "Invalid"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid conflict column")
+	})
+
+	t.Run("invalid update column", func(t *testing.T) {
+		err := db.Accounts.Upsert(ctx, []string{"name"}, []string{"nonexistent"}, &Account{Name: "Invalid"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid update column")
 	})
 }

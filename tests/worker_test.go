@@ -27,17 +27,18 @@ func (w *Worker) ProcessReview(ctx context.Context, review *Review) (err error) 
 	defer func() {
 		// Always update review status to "approved", "rejected" or "failed".
 		noCtx := context.Background()
-		err = w.DB.Reviews.LockForUpdate(noCtx, sq.Eq{"id": review.ID}, []string{"id DESC"}, func(update *Review) {
+		_, claimErr := w.DB.Reviews.ClaimOneForUpdate(noCtx, sq.Eq{"id": review.ID}, []string{"id DESC"}, func(update *Review) error {
 			now := time.Now().UTC()
 			update.ProcessedAt = &now
 			if err != nil {
 				update.Status = ReviewStatusFailed
-				return
+			} else {
+				update.Status = review.Status
 			}
-			update.Status = review.Status
+			return nil
 		})
-		if err != nil {
-			log.Printf("failed to save review: %v", err)
+		if claimErr != nil {
+			log.Printf("failed to save review: %v", claimErr)
 		}
 	}()
 
