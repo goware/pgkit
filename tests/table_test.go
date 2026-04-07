@@ -619,6 +619,34 @@ func TestHardDeleteByID(t *testing.T) {
 	})
 }
 
+func TestIter(t *testing.T) {
+	truncateAllTables(t)
+
+	ctx := t.Context()
+	db := initDB(DB)
+
+	account := &Account{Name: "Iter Account"}
+	err := db.Accounts.Insert(ctx, account)
+	require.NoError(t, err)
+
+	const total = 100
+	for i := range total {
+		err := db.Articles.Insert(ctx, &Article{AccountID: account.ID, Author: fmt.Sprintf("Author %03d", i)})
+		require.NoError(t, err)
+	}
+
+	iter, err := db.Articles.Iter(ctx, sq.Eq{"account_id": account.ID}, []string{"id"})
+	require.NoError(t, err)
+
+	var count int
+	for article, err := range iter {
+		require.NoError(t, err)
+		require.NotNil(t, article)
+		count++
+	}
+	require.Equal(t, total, count, "Iter should yield all rows")
+}
+
 func TestLockForUpdates(t *testing.T) {
 	truncateAllTables(t)
 

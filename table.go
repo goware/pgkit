@@ -417,10 +417,8 @@ func (t *Table[T, P, I]) Iter(ctx context.Context, where sq.Sqlizer, orderBy []s
 		defer rows.Close()
 		for rows.Next() {
 			var record T
-			if err := t.Query.Scan.ScanOne(&record, rows); err != nil {
-				if !errors.Is(err, pgx.ErrNoRows) {
-					yield(nil, err)
-				}
+			if err := t.Query.Scan.ScanRow(&record, rows); err != nil {
+				yield(nil, err)
 				return
 			}
 			if !yield(&record, nil) {
