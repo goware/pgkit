@@ -189,6 +189,15 @@ func (t *Table[T, P, I]) Upsert(ctx context.Context, conflictColumns []string, u
 		}
 	}
 
+	// Auto-include updated_at in DO UPDATE when the record tracks update time.
+	if len(updateColumns) > 0 {
+		if _, ok := any(records[0]).(HasSetUpdatedAt); ok {
+			if _, exists := colSet["updated_at"]; exists && !slices.Contains(updateColumns, "updated_at") {
+				updateColumns = append(updateColumns, "updated_at")
+			}
+		}
+	}
+
 	// Build ON CONFLICT suffix.
 	var suffix string
 	if len(updateColumns) == 0 {
@@ -612,10 +621,17 @@ func (t *Table[T, P, I]) WithTx(tx pgx.Tx) *Table[T, P, I] {
 }
 
 // ClaimForUpdate locks matching rows with FOR UPDATE SKIP LOCKED, calls mutateFn
-// on each record, saves all records (committing the mutation), and returns the
-// mutated records for processing outside the transaction.
+// on each record, and saves all records within the transaction.
 //
-// If mutateFn returns an error, the transaction is rolled back and no records are returned.
+// When no existing transaction is present, ClaimForUpdate creates and commits its own
+// transaction — records are returned after commit, safe for processing outside the tx.
+//
+// When called on a table bound to an existing transaction (via WithTx), the caller
+// controls commit/rollback. Records are returned after the mutations are persisted
+// within the tx but before commit — the caller must commit the tx to finalize.
+//
+// If mutateFn returns an error, the transaction is rolled back (or left for the caller
+// to roll back in the WithTx case) and no records are returned.
 func (t *Table[T, P, I]) ClaimForUpdate(ctx context.Context, where sq.Sqlizer, orderBy []string, limit uint64, mutateFn func(record P) error) ([]P, error) {
 	var claimed []P
 

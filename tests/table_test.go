@@ -842,6 +842,7 @@ func TestUpsert(t *testing.T) {
 		got, err := db.Accounts.GetByID(ctx, original.ID)
 		require.NoError(t, err)
 		require.True(t, got.Disabled, "disabled should be updated on conflict")
+		require.True(t, got.UpdatedAt.After(original.UpdatedAt), "updated_at should be bumped on conflict even though caller only listed 'disabled'")
 
 		count, err := db.Accounts.Count(ctx, sq.Eq{"name": "DoUpdate"})
 		require.NoError(t, err)
