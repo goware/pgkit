@@ -2,6 +2,7 @@ package pgkit_test
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/goware/pgkit/v2/dbtype"
@@ -117,3 +118,25 @@ type Stat struct {
 	Num    dbtype.BigInt `db:"big_num"` // using NUMERIC(78,0) postgres datatype
 	Rating dbtype.BigInt `db:"rating"`  // using NUMERIC(78,0) postgres datatype
 }
+
+type AccountWithHook struct {
+	Account
+	UpperName string `db:"-"`
+}
+
+func (a *AccountWithHook) AfterScan() error {
+	a.UpperName = strings.ToUpper(a.Name)
+	return nil
+}
+
+func (a *AccountWithHook) DBTableName() string { return "accounts" }
+
+type AccountWithFailingHook struct {
+	Account
+}
+
+func (a *AccountWithFailingHook) AfterScan() error {
+	return fmt.Errorf("after scan boom")
+}
+
+func (a *AccountWithFailingHook) DBTableName() string { return "accounts" }

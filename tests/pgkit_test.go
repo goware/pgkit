@@ -1145,6 +1145,49 @@ func TestSlogTracerBatchQuery(t *testing.T) {
 	}
 }
 
+func TestAfterScan(t *testing.T) {
+	truncateAllTables(t)
+
+	ctx := t.Context()
+
+	hookTable := pgkit.Table[AccountWithHook, *AccountWithHook, int64]{DB: DB, Name: "accounts", IDColumn: "id"}
+	failTable := pgkit.Table[AccountWithFailingHook, *AccountWithFailingHook, int64]{DB: DB, Name: "accounts", IDColumn: "id"}
+	plainTable := pgkit.Table[Account, *Account, int64]{DB: DB, Name: "accounts", IDColumn: "id"}
+
+	// Seed data.
+	require.NoError(t, hookTable.Save(ctx, &AccountWithHook{Account: Account{Name: "alice"}}))
+	require.NoError(t, hookTable.Save(ctx, &AccountWithHook{Account: Account{Name: "bob"}}))
+
+	t.Run("Get", func(t *testing.T) {
+		acc, err := hookTable.Get(ctx, sq.Eq{"name": "alice"}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "ALICE", acc.UpperName)
+	})
+
+	t.Run("List", func(t *testing.T) {
+		accs, err := hookTable.List(ctx, nil, []string{"name"})
+		require.NoError(t, err)
+		require.Len(t, accs, 2)
+		assert.Equal(t, "ALICE", accs[0].UpperName)
+		assert.Equal(t, "BOB", accs[1].UpperName)
+	})
+
+	t.Run("NoHook", func(t *testing.T) {
+		// Account does not implement AfterScanner — should work unchanged.
+		acc, err := plainTable.Get(ctx, sq.Eq{"name": "alice"}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "alice", acc.Name)
+	})
+
+	t.Run("ErrorPropagation", func(t *testing.T) {
+		_, err := failTable.Get(ctx, sq.Eq{"name": "alice"}, nil)
+		require.ErrorContains(t, err, "after scan boom")
+
+		_, err = failTable.List(ctx, nil, nil)
+		require.ErrorContains(t, err, "after scan boom")
+	})
+}
+
 func getTracer(opts []tracer.Option) (*bytes.Buffer, *tracer.LogTracer) {
 	buf := &bytes.Buffer{}
 	handler := slog.NewJSONHandler(buf, nil)

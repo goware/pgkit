@@ -12,6 +12,22 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// AfterScanner is implemented by structs that need post-scan field hydration.
+type AfterScanner interface {
+	AfterScan() error
+}
+
+func afterScanAll[T any](records []T) error {
+	for i := range records {
+		if as, ok := any(records[i]).(AfterScanner); ok {
+			if err := as.AfterScan(); err != nil {
+				return fmt.Errorf("after scan: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
 // ID is a comparable type used for record IDs.
 type ID comparable
 
@@ -371,6 +387,11 @@ func (t *Table[T, P, I]) Get(ctx context.Context, where sq.Sqlizer, orderBy []st
 	if err := t.Query.GetOne(ctx, q, record); err != nil {
 		return nil, fmt.Errorf("get record: %w", err)
 	}
+	if as, ok := any(record).(AfterScanner); ok {
+		if err := as.AfterScan(); err != nil {
+			return nil, fmt.Errorf("after scan: %w", err)
+		}
+	}
 
 	return record, nil
 }
@@ -380,6 +401,9 @@ func (t *Table[T, P, I]) List(ctx context.Context, where sq.Sqlizer, orderBy []s
 	q := t.getListQuery(where, orderBy)
 	var records []P
 	if err := t.Query.GetAll(ctx, q, &records); err != nil {
+		return nil, err
+	}
+	if err := afterScanAll(records); err != nil {
 		return nil, err
 	}
 
@@ -402,6 +426,9 @@ func (t *Table[T, P, I]) ListPaged(ctx context.Context, where sq.Sqlizer, page *
 		return nil, nil, err
 	}
 	result = t.Paginator.PrepareResult(result, page)
+	if err := afterScanAll(result); err != nil {
+		return nil, nil, err
+	}
 	return result, page, nil
 }
 
@@ -420,6 +447,12 @@ func (t *Table[T, P, I]) Iter(ctx context.Context, where sq.Sqlizer, orderBy []s
 			if err := t.Query.Scan.ScanRow(&record, rows); err != nil {
 				yield(nil, err)
 				return
+			}
+			if as, ok := any(&record).(AfterScanner); ok {
+				if err := as.AfterScan(); err != nil {
+					yield(nil, fmt.Errorf("after scan: %w", err))
+					return
+				}
 			}
 			if !yield(&record, nil) {
 				return
