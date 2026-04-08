@@ -17,13 +17,35 @@ type AfterScanner interface {
 	AfterScan() error
 }
 
+// AfterScanError is returned when one or more records fail AfterScan.
+// The Errors map is keyed by the record's index in the returned slice.
+type AfterScanError struct {
+	Errors map[int]error
+}
+
+func (e *AfterScanError) Error() string {
+	return fmt.Sprintf("after scan: %d error(s)", len(e.Errors))
+}
+
+func (e *AfterScanError) Unwrap() []error {
+	errs := make([]error, 0, len(e.Errors))
+	for _, err := range e.Errors {
+		errs = append(errs, err)
+	}
+	return errs
+}
+
 func afterScanAll[T any](records []T) error {
+	errs := make(map[int]error)
 	for i := range records {
 		if as, ok := any(records[i]).(AfterScanner); ok {
 			if err := as.AfterScan(); err != nil {
-				return fmt.Errorf("after scan: %w", err)
+				errs[i] = err
 			}
 		}
+	}
+	if len(errs) > 0 {
+		return &AfterScanError{Errors: errs}
 	}
 	return nil
 }
@@ -403,11 +425,7 @@ func (t *Table[T, P, I]) List(ctx context.Context, where sq.Sqlizer, orderBy []s
 	if err := t.Query.GetAll(ctx, q, &records); err != nil {
 		return nil, err
 	}
-	if err := afterScanAll(records); err != nil {
-		return nil, err
-	}
-
-	return records, nil
+	return records, afterScanAll(records)
 }
 
 // ListPaged returns paginated records matching the condition.
@@ -426,10 +444,7 @@ func (t *Table[T, P, I]) ListPaged(ctx context.Context, where sq.Sqlizer, page *
 		return nil, nil, err
 	}
 	result = t.Paginator.PrepareResult(result, page)
-	if err := afterScanAll(result); err != nil {
-		return nil, nil, err
-	}
-	return result, page, nil
+	return result, page, afterScanAll(result)
 }
 
 // Iter returns an iterator for records matching the condition.

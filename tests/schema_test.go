@@ -131,12 +131,17 @@ func (a *AccountWithHook) AfterScan() error {
 
 func (a *AccountWithHook) DBTableName() string { return "accounts" }
 
+var errAfterScanBoom = fmt.Errorf("after scan boom")
+
 type AccountWithFailingHook struct {
 	Account
 }
 
 func (a *AccountWithFailingHook) AfterScan() error {
-	return fmt.Errorf("after scan boom")
+	if a.Name == "fail" {
+		return errAfterScanBoom
+	}
+	return nil
 }
 
 func (a *AccountWithFailingHook) DBTableName() string { return "accounts" }

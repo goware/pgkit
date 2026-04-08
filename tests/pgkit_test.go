@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1154,9 +1155,10 @@ func TestAfterScan(t *testing.T) {
 	failTable := pgkit.Table[AccountWithFailingHook, *AccountWithFailingHook, int64]{DB: DB, Name: "accounts", IDColumn: "id"}
 	plainTable := pgkit.Table[Account, *Account, int64]{DB: DB, Name: "accounts", IDColumn: "id"}
 
-	// Seed data.
+	// Seed data: "alice" and "bob" succeed AfterScan, "fail" triggers error.
 	require.NoError(t, hookTable.Save(ctx, &AccountWithHook{Account: Account{Name: "alice"}}))
 	require.NoError(t, hookTable.Save(ctx, &AccountWithHook{Account: Account{Name: "bob"}}))
+	require.NoError(t, hookTable.Save(ctx, &AccountWithHook{Account: Account{Name: "fail"}}))
 
 	t.Run("Get", func(t *testing.T) {
 		acc, err := hookTable.Get(ctx, sq.Eq{"name": "alice"}, nil)
@@ -1167,9 +1169,10 @@ func TestAfterScan(t *testing.T) {
 	t.Run("List", func(t *testing.T) {
 		accs, err := hookTable.List(ctx, nil, []string{"name"})
 		require.NoError(t, err)
-		require.Len(t, accs, 2)
+		require.Len(t, accs, 3)
 		assert.Equal(t, "ALICE", accs[0].UpperName)
 		assert.Equal(t, "BOB", accs[1].UpperName)
+		assert.Equal(t, "FAIL", accs[2].UpperName)
 	})
 
 	t.Run("NoHook", func(t *testing.T) {
@@ -1179,12 +1182,32 @@ func TestAfterScan(t *testing.T) {
 		assert.Equal(t, "alice", acc.Name)
 	})
 
-	t.Run("ErrorPropagation", func(t *testing.T) {
-		_, err := failTable.Get(ctx, sq.Eq{"name": "alice"}, nil)
+	t.Run("GetErrorPropagation", func(t *testing.T) {
+		_, err := failTable.Get(ctx, sq.Eq{"name": "fail"}, nil)
 		require.ErrorContains(t, err, "after scan boom")
+	})
 
-		_, err = failTable.List(ctx, nil, nil)
-		require.ErrorContains(t, err, "after scan boom")
+	t.Run("ListPartialFailure", func(t *testing.T) {
+		// "alice" and "bob" succeed, "fail" fails — all three returned.
+		accs, err := failTable.List(ctx, nil, []string{"name"})
+		require.Error(t, err)
+		require.Len(t, accs, 3, "all records returned despite error")
+
+		var scanErr *pgkit.AfterScanError
+		require.True(t, errors.As(err, &scanErr))
+		require.Len(t, scanErr.Errors, 1)
+
+		// "fail" sorts to index 1 (alice=0, fail=1, bob would be... let me order: alice, bob, fail → index 2)
+		_, ok := scanErr.Errors[2]
+		assert.True(t, ok, "error keyed by index of failing record")
+	})
+
+	t.Run("UnwrapTransitive", func(t *testing.T) {
+		_, err := failTable.List(ctx, nil, []string{"name"})
+		require.Error(t, err)
+
+		// errors.Is works transitively via Unwrap() []error.
+		assert.True(t, errors.Is(err, errAfterScanBoom))
 	})
 }
 
