@@ -1193,13 +1193,14 @@ func TestAfterScan(t *testing.T) {
 		require.Error(t, err)
 		require.Len(t, accs, 3, "all records returned despite error")
 
-		var scanErr *pgkit.AfterScanError
+		var scanErr *pgkit.AfterScanError[int64]
 		require.True(t, errors.As(err, &scanErr))
 		require.Len(t, scanErr.Errors, 1)
 
-		// "fail" sorts to index 1 (alice=0, fail=1, bob would be... let me order: alice, bob, fail → index 2)
-		_, ok := scanErr.Errors[2]
-		assert.True(t, ok, "error keyed by index of failing record")
+		// Error keyed by the record's ID, not slice index.
+		failAcc := accs[2] // "fail" sorted last (alice, bob, fail)
+		_, ok := scanErr.Errors[failAcc.ID]
+		assert.True(t, ok, "error keyed by record ID")
 	})
 
 	t.Run("UnwrapTransitive", func(t *testing.T) {

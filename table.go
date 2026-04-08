@@ -18,16 +18,20 @@ type AfterScanner interface {
 }
 
 // AfterScanError is returned when one or more records fail AfterScan.
-// The Errors map is keyed by the record's index in the returned slice.
-type AfterScanError struct {
-	Errors map[int]error
+// The Errors map is keyed by the record's ID.
+type AfterScanError[I ID] struct {
+	Errors map[I]error
 }
 
-func (e *AfterScanError) Error() string {
-	return fmt.Sprintf("after scan: %d error(s)", len(e.Errors))
+func (e *AfterScanError[I]) Error() string {
+	msg := fmt.Sprintf("after scan: %d error(s)", len(e.Errors))
+	for id, err := range e.Errors {
+		msg += fmt.Sprintf("\n- %v: %v", id, err)
+	}
+	return msg
 }
 
-func (e *AfterScanError) Unwrap() []error {
+func (e *AfterScanError[I]) Unwrap() []error {
 	errs := make([]error, 0, len(e.Errors))
 	for _, err := range e.Errors {
 		errs = append(errs, err)
@@ -35,17 +39,17 @@ func (e *AfterScanError) Unwrap() []error {
 	return errs
 }
 
-func afterScanAll[T any](records []T) error {
-	errs := make(map[int]error)
-	for i := range records {
-		if as, ok := any(records[i]).(AfterScanner); ok {
+func afterScanAll[T any, I ID](records []T, key func(T) I) error {
+	errs := make(map[I]error)
+	for _, r := range records {
+		if as, ok := any(r).(AfterScanner); ok {
 			if err := as.AfterScan(); err != nil {
-				errs[i] = err
+				errs[key(r)] = err
 			}
 		}
 	}
 	if len(errs) > 0 {
-		return &AfterScanError{Errors: errs}
+		return &AfterScanError[I]{Errors: errs}
 	}
 	return nil
 }
@@ -425,7 +429,7 @@ func (t *Table[T, P, I]) List(ctx context.Context, where sq.Sqlizer, orderBy []s
 	if err := t.Query.GetAll(ctx, q, &records); err != nil {
 		return nil, err
 	}
-	return records, afterScanAll(records)
+	return records, afterScanAll(records, P.GetID)
 }
 
 // ListPaged returns paginated records matching the condition.
@@ -444,7 +448,7 @@ func (t *Table[T, P, I]) ListPaged(ctx context.Context, where sq.Sqlizer, page *
 		return nil, nil, err
 	}
 	result = t.Paginator.PrepareResult(result, page)
-	return result, page, afterScanAll(result)
+	return result, page, afterScanAll(result, P.GetID)
 }
 
 // Iter returns an iterator for records matching the condition.
