@@ -33,8 +33,8 @@ func (e *AfterScanError[I]) Error() string {
 
 func (e *AfterScanError[I]) Unwrap() []error {
 	errs := make([]error, 0, len(e.Errors))
-	for _, err := range e.Errors {
-		errs = append(errs, err)
+	for id, err := range e.Errors {
+		errs = append(errs, fmt.Errorf("%v: %w", id, err))
 	}
 	return errs
 }
