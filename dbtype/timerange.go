@@ -21,10 +21,10 @@ type TimeRange struct {
 func UUIDv7Range(column string, since, until *time.Time) TimeRange {
 	r := TimeRange{column: column}
 	if since != nil {
-		r.floor = FloorUUIDv7(*since).String()
+		r.floor = FormatUUID(FloorUUIDv7(*since))
 	}
 	if until != nil {
-		r.ceil = CeilUUIDv7(*until).String()
+		r.ceil = FormatUUID(CeilUUIDv7(*until))
 	}
 	return r
 }
