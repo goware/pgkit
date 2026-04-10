@@ -78,8 +78,8 @@ func TestTimeRange_UUIDv7_BoundValues(t *testing.T) {
 	_, args, err := r.ToSql()
 	require.NoError(t, err)
 
-	assert.Equal(t, dbtype.FormatUUID(dbtype.FloorUUIDv7(since)), args[0])
-	assert.Equal(t, dbtype.FormatUUID(dbtype.CeilUUIDv7(until)), args[1])
+	assert.Equal(t, dbtype.FloorUUIDv7(since), args[0])
+	assert.Equal(t, dbtype.CeilUUIDv7(until), args[1])
 }
 
 func TestTimeRange_Int64ID_BoundValues(t *testing.T) {
