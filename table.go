@@ -321,6 +321,10 @@ func (t *Table[T, P, I]) saveAll(ctx context.Context, records []P) error {
 	for start := 0; start < len(insertRecords); start += chunkSize {
 		end := min(start+chunkSize, len(insertRecords))
 
+		// Preserve original pointers before GetAll replaces them with newly allocated structs.
+		originals := make([]P, end-start)
+		copy(originals, insertRecords[start:end])
+
 		chunk := insertRecords[start:end]
 		q := t.SQL.
 			InsertRecords(chunk).
@@ -331,9 +335,11 @@ func (t *Table[T, P, I]) saveAll(ctx context.Context, records []P) error {
 			return fmt.Errorf("insert records: %w", err)
 		}
 
-		// update original slice
+		// Copy DB-returned values into the original structs so external pointer
+		// aliases taken before Save remain valid (same behaviour as saveOne/GetOne).
 		for i, rr := range chunk {
-			records[insertIndices[start+i]] = rr
+			*originals[i] = *rr
+			records[insertIndices[start+i]] = originals[i]
 		}
 	}
 

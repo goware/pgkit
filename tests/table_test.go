@@ -68,6 +68,36 @@ func TestTable(t *testing.T) {
 		}
 	})
 
+	t.Run("Save external alias updated", func(t *testing.T) {
+		t.Parallel()
+		account := &Account{Name: "Alias Account"}
+		err := db.Accounts.Save(ctx, account)
+		require.NoError(t, err)
+
+		// Take aliases BEFORE Save — simulates real-world usage where callers
+		// keep a reference to the original pointer expecting it to be mutated.
+		slice := []*Article{
+			{Author: "AliasFirst", AccountID: account.ID},
+			{Author: "AliasSecond", AccountID: account.ID},
+		}
+		alias0 := slice[0]
+		alias1 := slice[1]
+
+		err = db.Articles.Save(ctx, slice...)
+		require.NoError(t, err)
+
+		require.NotZero(t, slice[0].ID)
+		require.NotZero(t, slice[1].ID)
+
+		// The alias pointer must be the same object as the slice element.
+		require.Same(t, slice[0], alias0, "alias0 should still point to the same struct as slice[0]")
+		require.Same(t, slice[1], alias1, "alias1 should still point to the same struct as slice[1]")
+
+		// And it must carry the DB-assigned ID.
+		require.Equal(t, slice[0].ID, alias0.ID, "alias0.ID should reflect the DB-assigned value")
+		require.Equal(t, slice[1].ID, alias1.ID, "alias1.ID should reflect the DB-assigned value")
+	})
+
 	t.Run("Save multiple", func(t *testing.T) {
 		t.Parallel()
 		// Create account.
