@@ -34,6 +34,17 @@ func (d *DB) TxQueryFromContext(ctx context.Context) *Querier {
 	return d.TxQuery(tx)
 }
 
+// InTx returns a new *DB that shares Conn and SQL with d but routes queries
+// through tx. Use it when a function takes *DB and you want it to participate
+// in a transaction the caller controls.
+func (d *DB) InTx(tx pgx.Tx) *DB {
+	return &DB{
+		Conn:  d.Conn,
+		SQL:   d.SQL,
+		Query: d.TxQuery(tx),
+	}
+}
+
 type Config struct {
 	Database        string `toml:"database"`
 	Host            string `toml:"host"`
