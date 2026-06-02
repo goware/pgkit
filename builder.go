@@ -21,7 +21,11 @@ func (s *StatementBuilder) InsertRecord(record interface{}, optTableName ...stri
 		return InsertBuilder{InsertBuilder: insert, err: wrapErr(err)}
 	}
 	if len(cols) == 0 {
-		return InsertBuilder{InsertBuilder: insert, err: wrapErr(fmt.Errorf("Map returned no columns for %T; for an all-default INSERT use sq.Expr(\"INSERT INTO %s DEFAULT VALUES\")", record, tableName))}
+		hint := `SQL.InsertDefaults("<table>")`
+		if tableName != "" {
+			hint = fmt.Sprintf("SQL.InsertDefaults(%q)", tableName)
+		}
+		return InsertBuilder{InsertBuilder: insert, err: wrapErr(fmt.Errorf("Map returned no columns for %T; for an all-default INSERT use %s", record, hint))}
 	}
 
 	return InsertBuilder{InsertBuilder: insert.Into(tableName).Columns(cols...).Values(vals...)}
@@ -64,7 +68,7 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 			return InsertBuilder{InsertBuilder: insert, err: wrapErr(err)}
 		}
 		if len(cols) == 0 {
-			return InsertBuilder{InsertBuilder: insert, err: wrapErr(fmt.Errorf("Map returned no columns for record %d (%T); for an all-default INSERT use sq.Expr", i, record))}
+			return InsertBuilder{InsertBuilder: insert, err: wrapErr(fmt.Errorf("Map returned no columns for record %d (%T); for an all-default INSERT use SQL.InsertDefaults (single-row only)", i, record))}
 		}
 
 		if i == 0 {
@@ -83,6 +87,39 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 
 	return InsertBuilder{InsertBuilder: insert.Into(tableName)}
 }
+
+// InsertDefaults builds INSERT INTO <table> DEFAULT VALUES; table must be non-empty.
+func (s *StatementBuilder) InsertDefaults(table string) DefaultValuesBuilder {
+	if table == "" {
+		// raw error; Querier.wrapErr applies the pgkit: prefix at use time.
+		return DefaultValuesBuilder{err: fmt.Errorf("insert statements must specify a table")}
+	}
+	return DefaultValuesBuilder{table: table}
+}
+
+// DefaultValuesBuilder is the sq.Sqlizer returned by InsertDefaults.
+type DefaultValuesBuilder struct {
+	table  string
+	suffix string
+	err    error
+}
+
+func (b DefaultValuesBuilder) ToSql() (string, []any, error) {
+	if b.err != nil {
+		return "", nil, b.err
+	}
+	return "INSERT INTO " + b.table + " DEFAULT VALUES" + b.suffix, nil, nil
+}
+
+// Suffix appends literal SQL; no placeholder rewriting, use sq.Expr for that.
+func (b DefaultValuesBuilder) Suffix(sql string) DefaultValuesBuilder {
+	if b.err != nil {
+		return b
+	}
+	return DefaultValuesBuilder{table: b.table, suffix: b.suffix + " " + sql}
+}
+
+func (b DefaultValuesBuilder) Err() error { return b.err }
 
 func (s StatementBuilder) UpdateRecord(record interface{}, whereExpr sq.Eq, optTableName ...string) UpdateBuilder {
 	return s.UpdateRecordColumns(record, whereExpr, nil, optTableName...)

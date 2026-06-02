@@ -45,22 +45,70 @@ func TestInsertRecords_UniformShape(t *testing.T) {
 	require.NoError(t, b.Err())
 }
 
-func TestInsertRecord_EmptyColumnsRejected(t *testing.T) {
-	// All fields tagged ,omitzero (or ,omitempty) and all zero leaves
-	// Map with no columns. Squirrel would emit invalid INSERT INTO t
-	// VALUES (); fail fast at build time and point at sq.Expr as the
-	// escape for the all-default INSERT case. Tracked in goware/pgkit#51.
+func TestInsertDefaults_PlainSQL(t *testing.T) {
+	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
+	b := sb.InsertDefaults("items")
+	require.NoError(t, b.Err())
+	sql, args, err := b.ToSql()
+	require.NoError(t, err)
+	assert.Equal(t, "INSERT INTO items DEFAULT VALUES", sql)
+	assert.Empty(t, args)
+}
+
+func TestInsertDefaults_WithReturning(t *testing.T) {
+	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
+	b := sb.InsertDefaults("items").Suffix(`RETURNING "id"`)
+	require.NoError(t, b.Err())
+	sql, _, err := b.ToSql()
+	require.NoError(t, err)
+	assert.Equal(t, `INSERT INTO items DEFAULT VALUES RETURNING "id"`, sql)
+}
+
+func TestInsertDefaults_MultipleSuffix(t *testing.T) {
+	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
+	b := sb.InsertDefaults("items").
+		Suffix("ON CONFLICT (id) DO NOTHING").
+		Suffix(`RETURNING "id"`)
+	sql, _, err := b.ToSql()
+	require.NoError(t, err)
+	assert.Equal(t, `INSERT INTO items DEFAULT VALUES ON CONFLICT (id) DO NOTHING RETURNING "id"`, sql)
+}
+
+func TestInsertDefaults_OnConflictDoUpdateExcluded(t *testing.T) {
+	// EXCLUDED-based upsert is the realistic conflict shape: literal SQL,
+	// no placeholders. Proves Suffix covers the common case without sq.Expr.
+	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
+	b := sb.InsertDefaults("items").Suffix("ON CONFLICT (id) DO UPDATE SET updated_at = EXCLUDED.updated_at RETURNING id")
+	sql, _, err := b.ToSql()
+	require.NoError(t, err)
+	assert.Equal(t, "INSERT INTO items DEFAULT VALUES ON CONFLICT (id) DO UPDATE SET updated_at = EXCLUDED.updated_at RETURNING id", sql)
+}
+
+func TestInsertDefaults_EmptyTableErrors(t *testing.T) {
+	// Build-time failure (not exec-time) + raw error (Querier owns the
+	// pgkit: prefix; double-wrapping would surface "pgkit: pgkit: ...").
+	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
+	b := sb.InsertDefaults("")
+	require.Error(t, b.Err())
+	assert.Contains(t, b.Err().Error(), "table")
+	_, _, err := b.ToSql()
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "pgkit: pgkit:")
+}
+
+func TestInsertRecord_AllDefaultsErrorHintsAtInsertDefaults(t *testing.T) {
 	type Item struct {
 		Tags []string `db:"tags,omitzero"`
 	}
 	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
 	b := sb.InsertRecord(&Item{}, "items")
 	require.Error(t, b.Err())
-	assert.Contains(t, b.Err().Error(), "no columns")
-	assert.Contains(t, b.Err().Error(), "sq.Expr")
+	assert.Contains(t, b.Err().Error(), `SQL.InsertDefaults("items")`)
 }
 
 func TestInsertRecords_EmptyColumnsRejected(t *testing.T) {
+	// Multi-row INSERT ... DEFAULT VALUES is not valid PG; the batch path
+	// rejects all-default records and points at the single-row InsertRecord.
 	type Item struct {
 		Tags []string `db:"tags,omitzero"`
 	}

@@ -1165,3 +1165,22 @@ func connectToDb(conf pgkit.Config) (*pgkit.DB, error) {
 	}
 	return dbClient, err
 }
+
+func TestInsertDefaultsRoundTrip(t *testing.T) {
+	// Hits PG (not just SQL string snapshots) to catch syntax issues
+	// the builder might emit but squirrel can't validate.
+	truncateTable(t, "default_only")
+
+	var id int64
+	err := DB.Query.QueryRow(
+		context.Background(),
+		DB.SQL.InsertDefaults("default_only").Suffix(`RETURNING "id"`),
+	).Scan(&id)
+	require.NoError(t, err)
+	require.NotZero(t, id)
+
+	rows, err := DB.Conn.Query(context.Background(), "SELECT id FROM default_only WHERE id = $1", id)
+	require.NoError(t, err)
+	defer rows.Close()
+	require.True(t, rows.Next(), "row should exist")
+}
