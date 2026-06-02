@@ -34,12 +34,13 @@ type MapOptions struct {
 	IncludeNil    bool
 }
 
-// Map converts a struct object (aka record) to a mapping of column names and values
-// which can be directly passed to a query executor. This allows you to use structs/objects
-// to build easy insert/update queries without having to specify the column names manually.
-// The mapper works by reading the column names from a struct fields `db:""` struct tag.
-// If you specify `,omitempty` as a tag option, then it will omit the column from the list,
-// which allows the database to take over and use its default value.
+// Map converts a struct to (column, value) slices using `db:""` struct tags.
+//
+// ,omitempty and ,omitzero (mutually exclusive) both skip zero values, but
+// ,omitzero keeps non-nil empty slices/maps so a clear-to-empty UPDATE
+// actually clears the column. Matches encoding/json's omitzero (Go 1.24+).
+// IncludeNil surfaces nil pointers as DEFAULT under ,omitempty and as
+// NULL under ,omitzero.
 func Map(record interface{}) ([]string, []interface{}, error) {
 	return MapWithOptions(record, nil)
 }
@@ -86,38 +87,34 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 
 			// Field options
 			_, tagOmitEmpty := fi.Options["omitempty"]
+			_, tagOmitZero := fi.Options["omitzero"]
+			if tagOmitEmpty && tagOmitZero {
+				return nil, nil, fmt.Errorf("field %q has both ,omitempty and ,omitzero tags (mutually exclusive)", fi.Name)
+			}
 
 			fld := reflectx.FieldByIndexesReadOnly(recordV, fi.Index)
 
 			if fld.Kind() == reflect.Ptr && fld.IsNil() {
-				if tagOmitEmpty && !options.IncludeNil {
+				if (tagOmitEmpty || tagOmitZero) && !options.IncludeNil {
 					continue
 				}
 				fv.fields = append(fv.fields, fi.Name)
+				// ,omitempty preserves legacy: forced-include emits DEFAULT
+				// so callers can fall back to the column's DB default. ,omitzero
+				// is the strict tag: forced-include emits literal NULL so a
+				// PATCH can clear a nullable column with a non-null default.
+				var v any
 				if tagOmitEmpty {
-					fv.values = append(fv.values, sqlDefault)
-				} else {
-					fv.values = append(fv.values, nil)
+					v = sqlDefault
 				}
+				fv.values = append(fv.values, v)
 				continue
 			}
 
 			value := fld.Interface()
-
-			isZero := false
-			if t, ok := fld.Interface().(hasIsZero); ok {
-				if t.IsZero() {
-					isZero = true
-				}
-			} else if fld.Kind() == reflect.Array || fld.Kind() == reflect.Slice {
-				if fld.Len() == 0 {
-					isZero = true
-				}
-			} else if reflect.DeepEqual(fi.Zero.Interface(), value) {
-				isZero = true
-			}
-
-			if isZero && tagOmitEmpty && !options.IncludeZeroed {
+			isEmpty, isStrictZero := zeroFlags(fld, fi.Zero.Interface())
+			skip := (isEmpty && tagOmitEmpty) || (isStrictZero && tagOmitZero)
+			if skip && !options.IncludeZeroed {
 				continue
 			}
 
@@ -127,7 +124,7 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 			// 	return nil, nil, err
 			// }
 			v := value
-			if isZero && tagOmitEmpty {
+			if skip {
 				v = sqlDefault
 			}
 			fv.values = append(fv.values, v)
@@ -183,6 +180,39 @@ func (fv *fieldValue) Swap(i, j int) {
 
 func (fv *fieldValue) Less(i, j int) bool {
 	return fv.fields[i] < fv.fields[j]
+}
+
+// Two return values because omitempty and omitzero disagree only on
+// non-nil empty slices; every other path returns both flags the same.
+func zeroFlags(fld reflect.Value, fieldZero any) (isEmpty, isStrictZero bool) {
+	if t, ok := fld.Interface().(hasIsZero); ok {
+		if t.IsZero() {
+			return true, true
+		}
+		return false, false
+	}
+	switch fld.Kind() {
+	case reflect.Slice:
+		if fld.IsNil() {
+			return true, true
+		}
+		if fld.Len() == 0 {
+			return true, false
+		}
+	case reflect.Map:
+		if fld.IsNil() {
+			return true, true
+		}
+	case reflect.Array:
+		// omitempty must keep all-zero arrays of normal length; switching
+		// to IsZero here would silently drop [16]byte UUIDs, [32]byte hashes.
+		return fld.Len() == 0, fld.IsZero()
+	default:
+		if reflect.DeepEqual(fieldZero, fld.Interface()) {
+			return true, true
+		}
+	}
+	return false, false
 }
 
 type hasIsZero interface {
