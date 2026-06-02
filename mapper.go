@@ -38,8 +38,21 @@ type MapOptions struct {
 // which can be directly passed to a query executor. This allows you to use structs/objects
 // to build easy insert/update queries without having to specify the column names manually.
 // The mapper works by reading the column names from a struct fields `db:""` struct tag.
-// If you specify `,omitempty` as a tag option, then it will omit the column from the list,
-// which allows the database to take over and use its default value.
+//
+// Two tag options control how zero values are emitted:
+//
+//   - `,omitempty` omits the column when the field's value is empty: a nil
+//     pointer, an empty string, a zero number, a zero-length slice or map
+//     (nil OR non-nil), or any type whose IsZero() reports true. This lets
+//     the database fall back to a column DEFAULT on INSERT, but on UPDATE
+//     it silently leaves the column untouched — which prevents clearing a
+//     NOT NULL DEFAULT '{}' array to empty.
+//   - `,omitzero` omits the column only when the field holds the type's
+//     true zero value: a nil pointer, a nil slice or map (non-nil empty is
+//     INCLUDED), or any type whose IsZero() reports true. Use this on
+//     columns you want to be able to clear to empty via UPDATE while still
+//     getting the DEFAULT on INSERT when the field is nil. Mirrors the
+//     semantics of encoding/json's `omitzero` (Go 1.24+).
 func Map(record interface{}) ([]string, []interface{}, error) {
 	return MapWithOptions(record, nil)
 }
@@ -86,15 +99,16 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 
 			// Field options
 			_, tagOmitEmpty := fi.Options["omitempty"]
+			_, tagOmitZero := fi.Options["omitzero"]
 
 			fld := reflectx.FieldByIndexesReadOnly(recordV, fi.Index)
 
 			if fld.Kind() == reflect.Ptr && fld.IsNil() {
-				if tagOmitEmpty && !options.IncludeNil {
+				if (tagOmitEmpty || tagOmitZero) && !options.IncludeNil {
 					continue
 				}
 				fv.fields = append(fv.fields, fi.Name)
-				if tagOmitEmpty {
+				if tagOmitEmpty || tagOmitZero {
 					fv.values = append(fv.values, sqlDefault)
 				} else {
 					fv.values = append(fv.values, nil)
@@ -104,20 +118,33 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 
 			value := fld.Interface()
 
-			isZero := false
+			// isEmpty matches the legacy omitempty rule: nil/empty slices and
+			// maps both count. isStrictZero matches Go 1.24+ json's omitzero:
+			// only the type's true zero value (nil slice/map, not empty).
+			var isEmpty, isStrictZero bool
 			if t, ok := fld.Interface().(hasIsZero); ok {
 				if t.IsZero() {
-					isZero = true
+					isEmpty, isStrictZero = true, true
 				}
-			} else if fld.Kind() == reflect.Array || fld.Kind() == reflect.Slice {
+			} else if fld.Kind() == reflect.Slice || fld.Kind() == reflect.Map {
+				if fld.IsNil() {
+					isEmpty, isStrictZero = true, true
+				} else if fld.Len() == 0 {
+					isEmpty = true
+				}
+			} else if fld.Kind() == reflect.Array {
 				if fld.Len() == 0 {
-					isZero = true
+					isEmpty = true
+				}
+				if fld.IsZero() {
+					isStrictZero = true
 				}
 			} else if reflect.DeepEqual(fi.Zero.Interface(), value) {
-				isZero = true
+				isEmpty, isStrictZero = true, true
 			}
 
-			if isZero && tagOmitEmpty && !options.IncludeZeroed {
+			skip := (isEmpty && tagOmitEmpty) || (isStrictZero && tagOmitZero)
+			if skip && !options.IncludeZeroed {
 				continue
 			}
 
@@ -127,7 +154,7 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 			// 	return nil, nil, err
 			// }
 			v := value
-			if isZero && tagOmitEmpty {
+			if skip {
 				v = sqlDefault
 			}
 			fv.values = append(fv.values, v)
