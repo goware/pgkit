@@ -39,6 +39,8 @@ type MapOptions struct {
 // ,omitempty and ,omitzero (mutually exclusive) both skip zero values, but
 // ,omitzero keeps non-nil empty slices/maps so a clear-to-empty UPDATE
 // actually clears the column. Matches encoding/json's omitzero (Go 1.24+).
+// IncludeNil surfaces nil pointers as DEFAULT under ,omitempty and as
+// NULL under ,omitzero.
 func Map(record interface{}) ([]string, []interface{}, error) {
 	return MapWithOptions(record, nil)
 }
@@ -97,11 +99,15 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 					continue
 				}
 				fv.fields = append(fv.fields, fi.Name)
-				if tagOmitEmpty || tagOmitZero {
-					fv.values = append(fv.values, sqlDefault)
-				} else {
-					fv.values = append(fv.values, nil)
+				// ,omitempty preserves legacy: forced-include emits DEFAULT
+				// so callers can fall back to the column's DB default. ,omitzero
+				// is the strict tag: forced-include emits literal NULL so a
+				// PATCH can clear a nullable column with a non-null default.
+				var v any
+				if tagOmitEmpty {
+					v = sqlDefault
 				}
+				fv.values = append(fv.values, v)
 				continue
 			}
 

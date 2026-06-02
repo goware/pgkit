@@ -194,6 +194,9 @@ func TestMapWithOptions_OmitZero_IncludeZeroed(t *testing.T) {
 }
 
 func TestMapWithOptions_OmitZero_IncludeNil_Pointer(t *testing.T) {
+	// Diverges from ,omitempty's DEFAULT-on-IncludeNil: under ,omitzero
+	// "show the nil" means literal SQL NULL, not a fallback default. Lets
+	// a PATCH caller clear a nullable column with a non-null DB default.
 	type Record struct {
 		Name *string `db:"name,omitzero"`
 	}
@@ -201,7 +204,7 @@ func TestMapWithOptions_OmitZero_IncludeNil_Pointer(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, cols, 1)
 	require.Equal(t, "name", cols[0])
-	assert.Equal(t, sq.Expr("DEFAULT"), vals[0])
+	assert.Nil(t, vals[0])
 }
 
 func TestMap_OmitZero_StructWithoutIsZero(t *testing.T) {
