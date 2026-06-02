@@ -61,6 +61,38 @@ func TestMap_OmitEmpty_EmptyNonNilSlice(t *testing.T) {
 	assert.NotContains(t, got, "slice", "omitempty drops empty-but-non-nil slice")
 }
 
+func TestMap_OmitEmpty_EmptyNonNilMap(t *testing.T) {
+	// Regression guard: pre-omitzero behavior — omitempty only skipped a
+	// MAP when it was nil (DeepEqual nil-typed-nil vs non-nil-empty was
+	// false). A non-nil empty map stayed, so a "clear my jsonb" UPDATE
+	// actually cleared. Keep that.
+	type Record struct {
+		Tags map[string]string `db:"tags,omitempty"`
+	}
+	got := mapFields(t, &Record{Tags: nil})
+	assert.NotContains(t, got, "tags", "nil map skipped by omitempty")
+
+	got = mapFields(t, &Record{Tags: map[string]string{}})
+	require.Contains(t, got, "tags", "empty-but-non-nil map kept by omitempty")
+	m, ok := got["tags"].(map[string]string)
+	require.True(t, ok)
+	assert.Len(t, m, 0)
+}
+
+func TestMap_OmitEmpty_AllZeroArray(t *testing.T) {
+	// Regression guard: pre-omitzero behavior — omitempty skipped an
+	// all-zero array via the DeepEqual fallback (e.g. [32]byte{} hashes,
+	// [16]byte UUIDs). Keep that for fixed-size byte fields.
+	type Record struct {
+		Hash [16]byte `db:"hash,omitempty"`
+	}
+	got := mapFields(t, &Record{})
+	assert.NotContains(t, got, "hash", "all-zero array skipped by omitempty")
+
+	got = mapFields(t, &Record{Hash: [16]byte{1}})
+	assert.Contains(t, got, "hash", "non-zero array kept by omitempty")
+}
+
 func TestMap_OmitZero_NilSlice(t *testing.T) {
 	// nil slice is the zero value of a slice type: omitzero skips the column
 	// so the DB DEFAULT applies on INSERT and the column is left untouched on
@@ -158,4 +190,42 @@ func TestMapWithOptions_OmitZero_IncludeNil_Pointer(t *testing.T) {
 	require.Len(t, cols, 1)
 	require.Equal(t, "name", cols[0])
 	assert.Equal(t, sq.Expr("DEFAULT"), vals[0])
+}
+
+func TestMap_OmitZero_StructWithoutIsZero(t *testing.T) {
+	// Struct fields without their own IsZero() fall through to the
+	// DeepEqual-against-the-type's-zero arm, matching encoding/json's
+	// omitzero semantic for plain structs.
+	type Inner struct{ A, B int }
+	type Record struct {
+		Inner Inner `db:"inner,omitzero"`
+	}
+	got := mapFields(t, &Record{})
+	assert.NotContains(t, got, "inner", "zero struct value skipped")
+
+	got = mapFields(t, &Record{Inner: Inner{A: 1}})
+	assert.Contains(t, got, "inner", "non-zero struct kept")
+}
+
+func TestMap_BothTags_OmitEmptyWins(t *testing.T) {
+	// A field tagged with both options gets the broader omitempty skip
+	// (zero-length non-nil slice is dropped) because (isEmpty && omitempty)
+	// fires when (isStrictZero && omitzero) wouldn't.
+	type Record struct {
+		Slice []string `db:"slice,omitempty,omitzero"`
+	}
+	got := mapFields(t, &Record{Slice: []string{}})
+	assert.NotContains(t, got, "slice", "omitempty wins on non-nil empty slice")
+}
+
+func TestMap_MapRecord_Unchanged(t *testing.T) {
+	// Regression guard: the reflect.Map record path (record IS a map, not
+	// a struct field) is independent of the field-walking changes above
+	// and must keep emitting every key. The path stores values as
+	// reflect.Value for downstream marshaling, which is pre-existing.
+	record := map[string]any{"a": 1, "b": "x"}
+	cols, vals, err := pgkit.Map(&record)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"a", "b"}, cols)
+	assert.Len(t, vals, 2)
 }

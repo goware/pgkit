@@ -34,25 +34,14 @@ type MapOptions struct {
 	IncludeNil    bool
 }
 
-// Map converts a struct object (aka record) to a mapping of column names and values
-// which can be directly passed to a query executor. This allows you to use structs/objects
-// to build easy insert/update queries without having to specify the column names manually.
-// The mapper works by reading the column names from a struct fields `db:""` struct tag.
+// Map converts a struct to (column, value) slices using `db:""` struct tags,
+// suitable for feeding squirrel's Columns(...).Values(...) or similar.
 //
-// Two tag options control how zero values are emitted:
-//
-//   - `,omitempty` omits the column when the field's value is empty: a nil
-//     pointer, an empty string, a zero number, a zero-length slice or map
-//     (nil OR non-nil), or any type whose IsZero() reports true. This lets
-//     the database fall back to a column DEFAULT on INSERT, but on UPDATE
-//     it silently leaves the column untouched — which prevents clearing a
-//     NOT NULL DEFAULT '{}' array to empty.
-//   - `,omitzero` omits the column only when the field holds the type's
-//     true zero value: a nil pointer, a nil slice or map (non-nil empty is
-//     INCLUDED), or any type whose IsZero() reports true. Use this on
-//     columns you want to be able to clear to empty via UPDATE while still
-//     getting the DEFAULT on INSERT when the field is nil. Mirrors the
-//     semantics of encoding/json's `omitzero` (Go 1.24+).
+// Tag options:
+//   - ,omitempty skips zero values, including empty (len==0) slices/maps.
+//   - ,omitzero skips only the type's true zero value; non-nil empty
+//     slices/maps stay, so a clear-to-empty UPDATE actually clears the column.
+//     Matches encoding/json's omitzero (Go 1.24+).
 func Map(record interface{}) ([]string, []interface{}, error) {
 	return MapWithOptions(record, nil)
 }
@@ -118,26 +107,30 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 
 			value := fld.Interface()
 
-			// isEmpty matches the legacy omitempty rule: nil/empty slices and
-			// maps both count. isStrictZero matches Go 1.24+ json's omitzero:
-			// only the type's true zero value (nil slice/map, not empty).
+			// isEmpty matches the legacy omitempty rule: slices count when
+			// len==0 (nil OR non-nil); maps and arrays only when they equal
+			// the type's zero (preserving pre-omitzero DeepEqual semantics).
+			// isStrictZero matches Go 1.24+ json's omitzero: only the type's
+			// true zero (nil slice/map, all-zero array, primitive zero, or
+			// IsZero()==true).
 			var isEmpty, isStrictZero bool
 			if t, ok := fld.Interface().(hasIsZero); ok {
 				if t.IsZero() {
 					isEmpty, isStrictZero = true, true
 				}
-			} else if fld.Kind() == reflect.Slice || fld.Kind() == reflect.Map {
+			} else if fld.Kind() == reflect.Slice {
 				if fld.IsNil() {
 					isEmpty, isStrictZero = true, true
 				} else if fld.Len() == 0 {
 					isEmpty = true
 				}
-			} else if fld.Kind() == reflect.Array {
-				if fld.Len() == 0 {
-					isEmpty = true
+			} else if fld.Kind() == reflect.Map {
+				if fld.IsNil() {
+					isEmpty, isStrictZero = true, true
 				}
+			} else if fld.Kind() == reflect.Array {
 				if fld.IsZero() {
-					isStrictZero = true
+					isEmpty, isStrictZero = true, true
 				}
 			} else if reflect.DeepEqual(fi.Zero.Interface(), value) {
 				isEmpty, isStrictZero = true, true
