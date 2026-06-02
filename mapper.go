@@ -118,22 +118,27 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 				if t.IsZero() {
 					isEmpty, isStrictZero = true, true
 				}
-			} else if fld.Kind() == reflect.Slice {
-				if fld.IsNil() {
-					isEmpty, isStrictZero = true, true
-				} else if fld.Len() == 0 {
-					isEmpty = true
+			} else {
+				switch fld.Kind() {
+				case reflect.Slice:
+					if fld.IsNil() {
+						isEmpty, isStrictZero = true, true
+					} else if fld.Len() == 0 {
+						isEmpty = true
+					}
+				case reflect.Map:
+					if fld.IsNil() {
+						isEmpty, isStrictZero = true, true
+					}
+				case reflect.Array:
+					if fld.IsZero() {
+						isEmpty, isStrictZero = true, true
+					}
+				default:
+					if reflect.DeepEqual(fi.Zero.Interface(), value) {
+						isEmpty, isStrictZero = true, true
+					}
 				}
-			} else if fld.Kind() == reflect.Map {
-				if fld.IsNil() {
-					isEmpty, isStrictZero = true, true
-				}
-			} else if fld.Kind() == reflect.Array {
-				if fld.IsZero() {
-					isEmpty, isStrictZero = true, true
-				}
-			} else if reflect.DeepEqual(fi.Zero.Interface(), value) {
-				isEmpty, isStrictZero = true, true
 			}
 
 			skip := (isEmpty && tagOmitEmpty) || (isStrictZero && tagOmitZero)
