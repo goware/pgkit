@@ -34,14 +34,11 @@ type MapOptions struct {
 	IncludeNil    bool
 }
 
-// Map converts a struct to (column, value) slices using `db:""` struct tags,
-// suitable for feeding squirrel's Columns(...).Values(...) or similar.
+// Map converts a struct to (column, value) slices using `db:""` struct tags.
 //
-// Tag options:
-//   - ,omitempty skips zero values, including empty (len==0) slices/maps.
-//   - ,omitzero skips only the type's true zero value; non-nil empty
-//     slices/maps stay, so a clear-to-empty UPDATE actually clears the column.
-//     Matches encoding/json's omitzero (Go 1.24+).
+// Both ,omitempty and ,omitzero skip zero values, but ,omitzero keeps non-nil
+// empty slices/maps so a clear-to-empty UPDATE actually clears the column.
+// Matches encoding/json's omitzero (Go 1.24+).
 func Map(record interface{}) ([]string, []interface{}, error) {
 	return MapWithOptions(record, nil)
 }
@@ -107,12 +104,8 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 
 			value := fld.Interface()
 
-			// isEmpty matches the legacy omitempty rule: slices count when
-			// len==0 (nil OR non-nil); maps and arrays only when they equal
-			// the type's zero (preserving pre-omitzero DeepEqual semantics).
-			// isStrictZero matches Go 1.24+ json's omitzero: only the type's
-			// true zero (nil slice/map, all-zero array, primitive zero, or
-			// IsZero()==true).
+			// Two flags because omitempty and omitzero disagree only on
+			// non-nil empty slices; every other path sets both together.
 			var isEmpty, isStrictZero bool
 			if t, ok := fld.Interface().(hasIsZero); ok {
 				if t.IsZero() {
@@ -131,10 +124,9 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 						isEmpty, isStrictZero = true, true
 					}
 				case reflect.Array:
-					// Legacy omitempty: only [0]T counted (Len==0). Normal-length
-					// all-zero arrays were emitted. Keep that — switching to
-					// IsZero for omitempty would silently drop [16]byte UUIDs,
-					// [32]byte hashes, etc. omitzero gets the strict rule.
+					// omitempty must keep all-zero arrays of normal length.
+					// Switching to IsZero here would silently drop [16]byte
+					// UUIDs, [32]byte hashes, etc. omitzero gets the strict rule.
 					if fld.Len() == 0 {
 						isEmpty = true
 					}

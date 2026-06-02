@@ -11,7 +11,6 @@ import (
 	"github.com/goware/pgkit/v2"
 )
 
-// mapFields runs Map and returns a column->value lookup for easier asserts.
 func mapFields(t *testing.T, record any) map[string]any {
 	t.Helper()
 	cols, vals, err := pgkit.Map(record)
@@ -62,10 +61,9 @@ func TestMap_OmitEmpty_EmptyNonNilSlice(t *testing.T) {
 }
 
 func TestMap_OmitEmpty_EmptyNonNilMap(t *testing.T) {
-	// Regression guard: pre-omitzero behavior — omitempty only skipped a
-	// MAP when it was nil (DeepEqual nil-typed-nil vs non-nil-empty was
-	// false). A non-nil empty map stayed, so a "clear my jsonb" UPDATE
-	// actually cleared. Keep that.
+	// Regression guard: legacy omitempty only skipped a nil map. A
+	// non-nil empty map stayed, so a "clear my jsonb" UPDATE actually
+	// cleared. Keep that.
 	type Record struct {
 		Tags map[string]string `db:"tags,omitempty"`
 	}
@@ -159,8 +157,8 @@ func TestMap_OmitZero_PrimitiveZeros(t *testing.T) {
 }
 
 func TestMap_OmitZero_TimeIsZero(t *testing.T) {
-	// time.Time implements IsZero(); omitzero honors the interface like
-	// omitempty does, so a zero-valued time is skipped.
+	// IsZero() interface takes precedence over Kind dispatch, so types
+	// owning their own zero rule (time.Time, decimal, etc.) win.
 	type Record struct {
 		At time.Time `db:"at,omitzero"`
 	}
@@ -196,7 +194,6 @@ func TestMapWithOptions_OmitZero_IncludeZeroed(t *testing.T) {
 }
 
 func TestMapWithOptions_OmitZero_IncludeNil_Pointer(t *testing.T) {
-	// IncludeNil surfaces a nil pointer with a DEFAULT marker.
 	type Record struct {
 		Name *string `db:"name,omitzero"`
 	}
