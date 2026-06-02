@@ -3,6 +3,7 @@ package pgkit
 import (
 	"fmt"
 	"reflect"
+	"slices"
 
 	sq "github.com/Masterminds/squirrel"
 )
@@ -23,6 +24,11 @@ func (s *StatementBuilder) InsertRecord(record interface{}, optTableName ...stri
 	return InsertBuilder{InsertBuilder: insert.Into(tableName).Columns(cols...).Values(vals...)}
 }
 
+// InsertRecords builds a multi-row INSERT from a slice of records.
+//
+// Every record must produce the same Map column set; a drifted shape (e.g.
+// mixed nil and non-nil empty slices under ,omitzero) returns a build-time
+// error rather than emitting malformed multi-row SQL.
 func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName ...string) InsertBuilder {
 	insert := sq.InsertBuilder(s.StatementBuilderType)
 
@@ -39,6 +45,7 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 		tableName = optTableName[0]
 	}
 
+	var baseCols []string
 	for i := 0; i < v.Len(); i++ {
 		record := v.Index(i).Interface()
 
@@ -54,8 +61,15 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 		}
 
 		if i == 0 {
+			baseCols = cols
 			insert = insert.Columns(cols...).Values(vals...)
 		} else {
+			if !slices.Equal(cols, baseCols) {
+				return InsertBuilder{
+					InsertBuilder: insert,
+					err:           wrapErr(fmt.Errorf("record %d columns %v differ from record 0 columns %v", i, cols, baseCols)),
+				}
+			}
 			insert = insert.Values(vals...)
 		}
 	}
