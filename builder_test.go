@@ -10,27 +10,7 @@ import (
 	"github.com/goware/pgkit/v2"
 )
 
-func TestInsertRecords_ColumnDriftRejected(t *testing.T) {
-	// ,omitzero produces different column shapes for nil vs non-nil empty
-	// slices; squirrel would otherwise stitch the mismatched widths into
-	// malformed multi-row SQL and surface only at exec time.
-	type Item struct {
-		ID   int      `db:"id"`
-		Tags []string `db:"tags,omitzero"`
-	}
-
-	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
-	records := []Item{
-		{ID: 1, Tags: nil},
-		{ID: 2, Tags: []string{}},
-	}
-	b := sb.InsertRecords(records, "items")
-	require.Error(t, b.Err())
-	assert.Contains(t, b.Err().Error(), "differ from record 0")
-}
-
 func TestInsertRecords_UniformShape(t *testing.T) {
-	// Sanity: batches with consistent column shape across rows still build.
 	type Item struct {
 		ID   int      `db:"id"`
 		Tags []string `db:"tags,omitzero"`
@@ -43,6 +23,10 @@ func TestInsertRecords_UniformShape(t *testing.T) {
 	}
 	b := sb.InsertRecords(records, "items")
 	require.NoError(t, b.Err())
+	sql, args, err := b.ToSql()
+	require.NoError(t, err)
+	assert.Equal(t, `INSERT INTO items (id,tags) VALUES ($1,$2),($3,$4)`, sql)
+	assert.Equal(t, []any{1, []string{"a"}, 2, []string{"b"}}, args)
 }
 
 func TestInsertDefaults_PlainSQL(t *testing.T) {
@@ -126,23 +110,58 @@ func TestInsertRecord_AllDefaultsErrorHintsAtInsertDefaults(t *testing.T) {
 	assert.Contains(t, b.Err().Error(), `SQL.InsertDefaults("items")`)
 }
 
-func TestInsertRecords_EmptyColumnsRejected(t *testing.T) {
-	// Multi-row INSERT ... DEFAULT VALUES is not valid PG; the batch path
-	// rejects all-default records and points at the single-row InsertRecord.
+func TestInsertRecords_MixedShape_UnionsAndDefaults(t *testing.T) {
+	// Heterogeneous batch: each row contributes a different column subset.
+	// The union becomes the INSERT column list; missing slots become DEFAULT.
 	type Item struct {
+		ID   int      `db:"id"`
+		Name string   `db:"name,omitzero"`
 		Tags []string `db:"tags,omitzero"`
 	}
+
 	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
-	records := []Item{{}, {}}
+	records := []Item{
+		{ID: 1, Name: "first"},                   // cols = [id, name]
+		{ID: 2, Tags: []string{"foo"}},           // cols = [id, tags]
+		{ID: 3, Name: "third", Tags: []string{}}, // cols = [id, name, tags] (omitzero keeps non-nil empty)
+	}
 	b := sb.InsertRecords(records, "items")
-	require.Error(t, b.Err())
-	assert.Contains(t, b.Err().Error(), "no columns")
+	require.NoError(t, b.Err())
+	sql, args, err := b.ToSql()
+	require.NoError(t, err)
+	assert.Equal(t,
+		`INSERT INTO items (id,name,tags) VALUES ($1,$2,DEFAULT),($3,DEFAULT,$4),($5,$6,$7)`,
+		sql,
+	)
+	assert.Equal(t, []any{1, "first", 2, []string{"foo"}, 3, "third", []string{}}, args)
 }
 
-func TestInsertRecords_OmitEmptyMapDriftRejected(t *testing.T) {
-	// Latent footgun ,omitzero exposes: legacy ,omitempty on a map already
-	// produced shape drift (nil map skipped, non-nil empty map kept via the
-	// DeepEqual fallback). The validation catches this case for free.
+func TestInsertRecords_OmitZeroMixedSlices(t *testing.T) {
+	// #50 used to reject this with a drift error. The union-with-DEFAULT
+	// approach makes it valid: ,omitzero distinguishes nil (skipped → DEFAULT)
+	// from non-nil empty (included with empty literal).
+	type Item struct {
+		ID   int      `db:"id"`
+		Tags []string `db:"tags,omitzero"`
+	}
+
+	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
+	records := []Item{
+		{ID: 1, Tags: nil},        // tags skipped → will become DEFAULT
+		{ID: 2, Tags: []string{}}, // tags included → empty array literal
+	}
+	b := sb.InsertRecords(records, "items")
+	require.NoError(t, b.Err())
+	sql, args, err := b.ToSql()
+	require.NoError(t, err)
+	assert.Equal(t, `INSERT INTO items (id,tags) VALUES ($1,DEFAULT),($2,$3)`, sql)
+	assert.Equal(t, []any{1, 2, []string{}}, args)
+}
+
+func TestInsertRecords_OmitEmptyMixedMaps(t *testing.T) {
+	// Legacy footgun resolved: ,omitempty on a map has always treated nil
+	// and non-nil empty differently (DeepEqual sees them as distinct).
+	// Now the union path handles it instead of rejecting.
 	type Item struct {
 		ID   int               `db:"id"`
 		Tags map[string]string `db:"tags,omitempty"`
@@ -154,5 +173,61 @@ func TestInsertRecords_OmitEmptyMapDriftRejected(t *testing.T) {
 		{ID: 2, Tags: map[string]string{}},
 	}
 	b := sb.InsertRecords(records, "items")
+	require.NoError(t, b.Err())
+	sql, _, err := b.ToSql()
+	require.NoError(t, err)
+	assert.Equal(t, `INSERT INTO items (id,tags) VALUES ($1,DEFAULT),($2,$3)`, sql)
+}
+
+func TestInsertRecords_EmptyRowMixedWithNonEmpty(t *testing.T) {
+	// A row with all-skipped fields can still appear in a batch: another row
+	// contributes the column union, the empty row pads to all DEFAULT.
+	type Item struct {
+		Name string   `db:"name,omitzero"`
+		Tags []string `db:"tags,omitzero"`
+	}
+
+	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
+	records := []Item{
+		{},                                    // empty → all DEFAULT
+		{Name: "second", Tags: []string{"a"}}, // contributes the union
+	}
+	b := sb.InsertRecords(records, "items")
+	require.NoError(t, b.Err())
+	sql, args, err := b.ToSql()
+	require.NoError(t, err)
+	assert.Equal(t, `INSERT INTO items (name,tags) VALUES (DEFAULT,DEFAULT),($1,$2)`, sql)
+	assert.Equal(t, []any{"second", []string{"a"}}, args)
+}
+
+func TestInsertRecords_AllRowsEmpty_Rejected(t *testing.T) {
+	// Whole-batch empty union: no row contributed any column. Genuinely
+	// out of InsertRecords' scope — caller wants InsertDefaults per row.
+	type Item struct {
+		Name string   `db:"name,omitzero"`
+		Tags []string `db:"tags,omitzero"`
+	}
+
+	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
+	records := []Item{{}, {}}
+	b := sb.InsertRecords(records, "items")
 	require.Error(t, b.Err())
+	assert.Contains(t, b.Err().Error(), "no columns")
+	assert.Contains(t, b.Err().Error(), `SQL.InsertDefaults("items")`)
+}
+
+func TestInsertRecords_MapRecords(t *testing.T) {
+	// Map accepts records as map[string]any (mapper.go's reflect.Map case).
+	// Heterogeneous map batches should union just like struct batches do.
+	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
+	records := []map[string]any{
+		{"id": 1, "name": "first"},
+		{"id": 2, "tags": "foo"},
+	}
+	b := sb.InsertRecords(records, "items")
+	require.NoError(t, b.Err())
+	sql, _, err := b.ToSql()
+	require.NoError(t, err)
+	// Column order is lexical (Map sorts deterministically).
+	assert.Equal(t, `INSERT INTO items (id,name,tags) VALUES ($1,$2,DEFAULT),($3,DEFAULT,$4)`, sql)
 }
