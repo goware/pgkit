@@ -11,20 +11,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type rowCursor struct {
-	ID string `json:"id"`
-}
-
 type row struct {
 	ID string
 }
 
-func applyIDCursor(q sq.SelectBuilder, c rowCursor) sq.SelectBuilder {
+type rowCursor struct {
+	ID string `json:"id"`
+}
+
+func (c *rowCursor) Apply(q sq.SelectBuilder) sq.SelectBuilder {
 	return q.Where(sq.Lt{"id": c.ID})
 }
 
-func cursorFromRow(r row) (rowCursor, error) {
-	return rowCursor{ID: r.ID}, nil
+func (c *rowCursor) From(r row) error {
+	c.ID = r.ID
+	return nil
 }
 
 func TestEncodeDecodeCursorRoundTrip(t *testing.T) {
@@ -51,7 +52,6 @@ func TestDecodeCursorInvalidBase64(t *testing.T) {
 }
 
 func TestDecodeCursorInvalidJSON(t *testing.T) {
-	// Valid base64, invalid JSON payload.
 	encoded, err := pgkit.EncodeCursor("not a struct")
 	require.NoError(t, err)
 
@@ -61,13 +61,13 @@ func TestDecodeCursorInvalidJSON(t *testing.T) {
 }
 
 func TestCursorPaginatorFirstPage(t *testing.T) {
-	paginator := pgkit.NewCursorPaginator[row, rowCursor](
+	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor](
 		pgkit.WithDefaultSize(2),
 		pgkit.WithMaxSize(5),
 	)
 	page := &pgkit.Page{}
 
-	result, q, err := paginator.PrepareQuery(sq.Select("*").From("t"), page, applyIDCursor)
+	result, q, err := paginator.PrepareQuery(sq.Select("*").From("t"), page)
 	require.NoError(t, err)
 	require.Len(t, result, 0)
 	require.Equal(t, 3, cap(result))
@@ -79,12 +79,12 @@ func TestCursorPaginatorFirstPage(t *testing.T) {
 }
 
 func TestCursorPaginatorWithCursor(t *testing.T) {
-	paginator := pgkit.NewCursorPaginator[row, rowCursor](pgkit.WithDefaultSize(2))
+	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor](pgkit.WithDefaultSize(2))
 	encoded, err := pgkit.EncodeCursor(rowCursor{ID: "row_5"})
 	require.NoError(t, err)
 	page := &pgkit.Page{Cursor: encoded}
 
-	_, q, err := paginator.PrepareQuery(sq.Select("*").From("t"), page, applyIDCursor)
+	_, q, err := paginator.PrepareQuery(sq.Select("*").From("t"), page)
 	require.NoError(t, err)
 
 	sql, args, err := q.ToSql()
@@ -94,21 +94,21 @@ func TestCursorPaginatorWithCursor(t *testing.T) {
 }
 
 func TestCursorPaginatorInvalidCursor(t *testing.T) {
-	paginator := pgkit.NewCursorPaginator[row, rowCursor]()
+	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor]()
 	page := &pgkit.Page{Cursor: "!!!not-base64!!!"}
 
-	_, _, err := paginator.PrepareQuery(sq.Select("*").From("t"), page, applyIDCursor)
+	_, _, err := paginator.PrepareQuery(sq.Select("*").From("t"), page)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, pgkit.ErrInvalidCursor))
 }
 
 func TestCursorPaginatorPrepareResultNoMore(t *testing.T) {
-	paginator := pgkit.NewCursorPaginator[row, rowCursor](pgkit.WithDefaultSize(3))
+	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor](pgkit.WithDefaultSize(3))
 	page := &pgkit.Page{}
-	_, _, err := paginator.PrepareQuery(sq.Select("*").From("t"), page, applyIDCursor)
+	_, _, err := paginator.PrepareQuery(sq.Select("*").From("t"), page)
 	require.NoError(t, err)
 
-	result, err := paginator.PrepareResult([]row{{ID: "1"}, {ID: "2"}}, page, cursorFromRow)
+	result, err := paginator.PrepareResult([]row{{ID: "1"}, {ID: "2"}}, page)
 	require.NoError(t, err)
 	require.Len(t, result, 2)
 	require.False(t, page.More)
@@ -117,23 +117,20 @@ func TestCursorPaginatorPrepareResultNoMore(t *testing.T) {
 }
 
 func TestCursorPaginatorPrepareResultHasMore(t *testing.T) {
-	paginator := pgkit.NewCursorPaginator[row, rowCursor](pgkit.WithDefaultSize(2))
+	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor](pgkit.WithDefaultSize(2))
 	page := &pgkit.Page{}
-	_, _, err := paginator.PrepareQuery(sq.Select("*").From("t"), page, applyIDCursor)
+	_, _, err := paginator.PrepareQuery(sq.Select("*").From("t"), page)
 	require.NoError(t, err)
 
-	// Three rows returned, limit was 2 — the third signals "more".
 	result, err := paginator.PrepareResult(
 		[]row{{ID: "3"}, {ID: "2"}, {ID: "1"}},
 		page,
-		cursorFromRow,
 	)
 	require.NoError(t, err)
 	require.Equal(t, []row{{ID: "3"}, {ID: "2"}}, result)
 	require.True(t, page.More)
 	require.NotEmpty(t, page.NextCursor)
 
-	// NextCursor must round-trip back to the last surviving row.
 	decoded, err := pgkit.DecodeCursor[rowCursor](page.NextCursor)
 	require.NoError(t, err)
 	require.NotNil(t, decoded)
@@ -141,24 +138,23 @@ func TestCursorPaginatorPrepareResultHasMore(t *testing.T) {
 }
 
 func TestCursorPaginatorDefaultsFromNilPage(t *testing.T) {
-	paginator := pgkit.NewCursorPaginator[row, rowCursor]()
-	_, q, err := paginator.PrepareQuery(sq.Select("*").From("t"), nil, applyIDCursor)
+	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor]()
+	_, q, err := paginator.PrepareQuery(sq.Select("*").From("t"), nil)
 	require.NoError(t, err)
 
 	sql, _, err := q.ToSql()
 	require.NoError(t, err)
-	// Default page size is 10 → LIMIT 11.
 	require.Equal(t, "SELECT * FROM t LIMIT 11", sql)
 }
 
 func TestCursorPaginatorCapsAtMaxSize(t *testing.T) {
-	paginator := pgkit.NewCursorPaginator[row, rowCursor](
+	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor](
 		pgkit.WithDefaultSize(5),
 		pgkit.WithMaxSize(10),
 	)
 	page := &pgkit.Page{Size: 999}
 
-	_, q, err := paginator.PrepareQuery(sq.Select("*").From("t"), page, applyIDCursor)
+	_, q, err := paginator.PrepareQuery(sq.Select("*").From("t"), page)
 	require.NoError(t, err)
 
 	sql, _, err := q.ToSql()
@@ -168,25 +164,22 @@ func TestCursorPaginatorCapsAtMaxSize(t *testing.T) {
 }
 
 func TestCursorPaginatorMaxSizeBelowDefaultIsLifted(t *testing.T) {
-	paginator := pgkit.NewCursorPaginator[row, rowCursor](
+	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor](
 		pgkit.WithDefaultSize(20),
 		pgkit.WithMaxSize(5),
 	)
 	page := &pgkit.Page{}
 
-	_, q, err := paginator.PrepareQuery(sq.Select("*").From("t"), page, applyIDCursor)
+	_, q, err := paginator.PrepareQuery(sq.Select("*").From("t"), page)
 	require.NoError(t, err)
 
 	sql, _, err := q.ToSql()
 	require.NoError(t, err)
-	// MaxSize is lifted to DefaultSize, so DefaultSize wins → LIMIT 21.
 	require.Equal(t, "SELECT * FROM t LIMIT 21", sql)
 }
 
 func TestCursorPaginatorWalksPages(t *testing.T) {
-	// End-to-end: paginate a fixed 5-row dataset in pages of 2 and
-	// verify every row surfaces exactly once across three pages.
-	paginator := pgkit.NewCursorPaginator[row, rowCursor](pgkit.WithDefaultSize(2))
+	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor](pgkit.WithDefaultSize(2))
 	all := []row{{ID: "5"}, {ID: "4"}, {ID: "3"}, {ID: "2"}, {ID: "1"}}
 
 	var (
@@ -194,11 +187,11 @@ func TestCursorPaginatorWalksPages(t *testing.T) {
 		seen []row
 	)
 	for step := 0; step < 5; step++ {
-		_, q, err := paginator.PrepareQuery(sq.Select("*").From("t"), page, applyIDCursor)
+		_, q, err := paginator.PrepareQuery(sq.Select("*").From("t"), page)
 		require.NoError(t, err)
 
 		fetched := fetch(t, all, q)
-		got, err := paginator.PrepareResult(fetched, page, cursorFromRow)
+		got, err := paginator.PrepareResult(fetched, page)
 		require.NoError(t, err)
 
 		seen = append(seen, got...)
@@ -212,41 +205,29 @@ func TestCursorPaginatorWalksPages(t *testing.T) {
 	require.False(t, page.More)
 }
 
+type failingRowCursor struct {
+	ID string `json:"id"`
+}
+
+func (c *failingRowCursor) Apply(q sq.SelectBuilder) sq.SelectBuilder {
+	return q.Where(sq.Lt{"id": c.ID})
+}
+
+var errBoom = errors.New("boom")
+
+func (c *failingRowCursor) From(row) error {
+	return errBoom
+}
+
 func TestCursorPaginatorPrepareResultPropagatesCursorError(t *testing.T) {
-	paginator := pgkit.NewCursorPaginator[row, rowCursor](pgkit.WithDefaultSize(1))
+	paginator := pgkit.NewCursorPaginator[row, failingRowCursor, *failingRowCursor](pgkit.WithDefaultSize(1))
 	page := &pgkit.Page{}
-	_, _, err := paginator.PrepareQuery(sq.Select("*").From("t"), page, applyIDCursor)
+	_, _, err := paginator.PrepareQuery(sq.Select("*").From("t"), page)
 	require.NoError(t, err)
 
-	sentinel := errors.New("boom")
-	_, err = paginator.PrepareResult(
-		[]row{{ID: "2"}, {ID: "1"}},
-		page,
-		func(row) (rowCursor, error) { return rowCursor{}, sentinel },
-	)
+	_, err = paginator.PrepareResult([]row{{ID: "2"}, {ID: "1"}}, page)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, sentinel))
-}
-
-func TestCursorPaginatorPanicsOnNilApplyCursor(t *testing.T) {
-	paginator := pgkit.NewCursorPaginator[row, rowCursor]()
-	require.PanicsWithValue(
-		t,
-		"pgkit: CursorPaginator.PrepareQuery: applyCursor must not be nil",
-		func() { _, _, _ = paginator.PrepareQuery(sq.Select("*").From("t"), &pgkit.Page{}, nil) },
-	)
-}
-
-func TestCursorPaginatorPanicsOnNilCursorFromRow(t *testing.T) {
-	paginator := pgkit.NewCursorPaginator[row, rowCursor]()
-	page := &pgkit.Page{}
-	_, _, err := paginator.PrepareQuery(sq.Select("*").From("t"), page, applyIDCursor)
-	require.NoError(t, err)
-	require.PanicsWithValue(
-		t,
-		"pgkit: CursorPaginator.PrepareResult: cursorFromRow must not be nil",
-		func() { _, _ = paginator.PrepareResult([]row{{ID: "1"}}, page, nil) },
-	)
+	require.True(t, errors.Is(err, errBoom))
 }
 
 // In-memory stand-in so the pagination walk exercises encode/decode without a real database.

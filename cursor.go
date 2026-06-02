@@ -37,14 +37,21 @@ func DecodeCursor[C any](value string) (*C, error) {
 	return &cursor, nil
 }
 
+// Cursor is the interface a typed keyset cursor satisfies — mirrors pgkit.Record[T, I]'s self-pointer pattern.
+type Cursor[Self any, Row any] interface {
+	*Self
+	Apply(sq.SelectBuilder) sq.SelectBuilder
+	From(Row) error
+}
+
 // CursorPaginator is the keyset sibling of Paginator[T] for ordering-stable pagination under concurrent writes.
-// The caller owns ORDER BY; applyCursor must match it or pages will silently skip or duplicate rows.
-type CursorPaginator[T any, C any] struct {
+// The caller owns ORDER BY; C.Apply must match it or pages will silently skip or duplicate rows.
+type CursorPaginator[T any, C any, PC Cursor[C, T]] struct {
 	settings PaginatorSettings
 }
 
 // NewCursorPaginator honors only size options — WithSort / WithColumnFunc are no-ops because the caller owns ORDER BY.
-func NewCursorPaginator[T any, C any](options ...PaginatorOption) CursorPaginator[T, C] {
+func NewCursorPaginator[T any, C any, PC Cursor[C, T]](options ...PaginatorOption) CursorPaginator[T, C, PC] {
 	settings := &PaginatorSettings{
 		DefaultSize: DefaultPageSize,
 		MaxSize:     MaxPageSize,
@@ -55,18 +62,11 @@ func NewCursorPaginator[T any, C any](options ...PaginatorOption) CursorPaginato
 	if settings.MaxSize < settings.DefaultSize {
 		settings.MaxSize = settings.DefaultSize
 	}
-	return CursorPaginator[T, C]{settings: *settings}
+	return CursorPaginator[T, C, PC]{settings: *settings}
 }
 
 // PrepareQuery chains LIMIT n+1 so PrepareResult can detect a next page without a second round-trip.
-func (p CursorPaginator[T, C]) PrepareQuery(
-	q sq.SelectBuilder,
-	page *Page,
-	applyCursor func(sq.SelectBuilder, C) sq.SelectBuilder,
-) ([]T, sq.SelectBuilder, error) {
-	if applyCursor == nil {
-		panic("pgkit: CursorPaginator.PrepareQuery: applyCursor must not be nil")
-	}
+func (p CursorPaginator[T, C, PC]) PrepareQuery(q sq.SelectBuilder, page *Page) ([]T, sq.SelectBuilder, error) {
 	if page == nil {
 		page = &Page{}
 	}
@@ -77,7 +77,7 @@ func (p CursorPaginator[T, C]) PrepareQuery(
 		if err != nil {
 			return nil, q, err
 		}
-		q = applyCursor(q, *cursor)
+		q = PC(cursor).Apply(q)
 	}
 
 	limit := page.Limit()
@@ -86,20 +86,13 @@ func (p CursorPaginator[T, C]) PrepareQuery(
 }
 
 // PrepareResult must be called after GetAll to populate page.More and page.NextCursor.
-func (p CursorPaginator[T, C]) PrepareResult(
-	result []T,
-	page *Page,
-	cursorFromRow func(T) (C, error),
-) ([]T, error) {
-	if cursorFromRow == nil {
-		panic("pgkit: CursorPaginator.PrepareResult: cursorFromRow must not be nil")
-	}
+func (p CursorPaginator[T, C, PC]) PrepareResult(result []T, page *Page) ([]T, error) {
 	limit := int(page.Limit())
 	page.More = len(result) > limit
 	if page.More {
 		result = result[:limit]
-		cursor, err := cursorFromRow(result[len(result)-1])
-		if err != nil {
+		var cursor C
+		if err := PC(&cursor).From(result[len(result)-1]); err != nil {
 			return nil, fmt.Errorf("cursor from row: %w", err)
 		}
 		next, err := EncodeCursor(cursor)
