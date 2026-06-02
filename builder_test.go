@@ -96,6 +96,26 @@ func TestInsertDefaults_EmptyTableErrors(t *testing.T) {
 	assert.NotContains(t, err.Error(), "pgkit: pgkit:")
 }
 
+func TestInsertDefaults_ZeroValueErrors(t *testing.T) {
+	// Direct zero-value construction bypasses the InsertDefaults factory's
+	// table check; ToSql must still error rather than emit invalid SQL.
+	var b pgkit.DefaultValuesBuilder
+	_, _, err := b.ToSql()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "table")
+}
+
+func TestInsertDefaults_EmptySuffixIsNoop(t *testing.T) {
+	// Conditional-suffix callers (b.Suffix(returningClause) with returningClause
+	// occasionally "") shouldn't get a trailing space that breaks SQL-string
+	// snapshot tests.
+	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
+	b := sb.InsertDefaults("items").Suffix("")
+	sql, _, err := b.ToSql()
+	require.NoError(t, err)
+	assert.Equal(t, "INSERT INTO items DEFAULT VALUES", sql)
+}
+
 func TestInsertRecord_AllDefaultsErrorHintsAtInsertDefaults(t *testing.T) {
 	type Item struct {
 		Tags []string `db:"tags,omitzero"`

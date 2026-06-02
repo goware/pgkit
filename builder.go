@@ -89,7 +89,7 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 }
 
 // InsertDefaults builds INSERT INTO <table> DEFAULT VALUES; table must be non-empty.
-func (s *StatementBuilder) InsertDefaults(table string) DefaultValuesBuilder {
+func (s StatementBuilder) InsertDefaults(table string) DefaultValuesBuilder {
 	if table == "" {
 		// raw error; Querier.wrapErr applies the pgkit: prefix at use time.
 		return DefaultValuesBuilder{err: fmt.Errorf("insert statements must specify a table")}
@@ -108,12 +108,17 @@ func (b DefaultValuesBuilder) ToSql() (string, []any, error) {
 	if b.err != nil {
 		return "", nil, b.err
 	}
+	// Defensive: a zero-value DefaultValuesBuilder bypasses the InsertDefaults
+	// constructor's table check, so re-validate here.
+	if b.table == "" {
+		return "", nil, fmt.Errorf("insert statements must specify a table")
+	}
 	return "INSERT INTO " + b.table + " DEFAULT VALUES" + b.suffix, nil, nil
 }
 
 // Suffix appends literal SQL; no placeholder rewriting, use sq.Expr for that.
 func (b DefaultValuesBuilder) Suffix(sql string) DefaultValuesBuilder {
-	if b.err != nil {
+	if b.err != nil || sql == "" {
 		return b
 	}
 	return DefaultValuesBuilder{table: b.table, suffix: b.suffix + " " + sql}
