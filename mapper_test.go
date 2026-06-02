@@ -219,15 +219,18 @@ func TestMap_OmitZero_StructWithoutIsZero(t *testing.T) {
 	assert.Contains(t, got, "inner", "non-zero struct kept")
 }
 
-func TestMap_BothTags_OmitEmptyWins(t *testing.T) {
-	// A field tagged with both options gets the broader omitempty skip
-	// (zero-length non-nil slice is dropped) because (isEmpty && omitempty)
-	// fires when (isStrictZero && omitzero) wouldn't.
+func TestMap_BothTags_Rejected(t *testing.T) {
+	// OR-composing the skip rule made the winner type-dependent (slices
+	// got omitempty, all-zero arrays got omitzero), silently reversing
+	// the array preservation we explicitly fixed earlier. No coherent
+	// precedence, so reject the combination.
 	type Record struct {
 		Slice []string `db:"slice,omitempty,omitzero"`
 	}
-	got := mapFields(t, &Record{Slice: []string{}})
-	assert.NotContains(t, got, "slice", "omitempty wins on non-nil empty slice")
+	_, _, err := pgkit.Map(&Record{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slice")
+	assert.Contains(t, err.Error(), "mutually exclusive")
 }
 
 func TestMap_MapRecord_Unchanged(t *testing.T) {

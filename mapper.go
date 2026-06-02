@@ -36,9 +36,9 @@ type MapOptions struct {
 
 // Map converts a struct to (column, value) slices using `db:""` struct tags.
 //
-// Both ,omitempty and ,omitzero skip zero values, but ,omitzero keeps non-nil
-// empty slices/maps so a clear-to-empty UPDATE actually clears the column.
-// Matches encoding/json's omitzero (Go 1.24+).
+// ,omitempty and ,omitzero (mutually exclusive) both skip zero values, but
+// ,omitzero keeps non-nil empty slices/maps so a clear-to-empty UPDATE
+// actually clears the column. Matches encoding/json's omitzero (Go 1.24+).
 func Map(record interface{}) ([]string, []interface{}, error) {
 	return MapWithOptions(record, nil)
 }
@@ -86,6 +86,9 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 			// Field options
 			_, tagOmitEmpty := fi.Options["omitempty"]
 			_, tagOmitZero := fi.Options["omitzero"]
+			if tagOmitEmpty && tagOmitZero {
+				return nil, nil, fmt.Errorf("field %q has both ,omitempty and ,omitzero tags (mutually exclusive)", fi.Name)
+			}
 
 			fld := reflectx.FieldByIndexesReadOnly(recordV, fi.Index)
 
