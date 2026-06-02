@@ -20,15 +20,19 @@ func (s *StatementBuilder) InsertRecord(record interface{}, optTableName ...stri
 	if err != nil {
 		return InsertBuilder{InsertBuilder: insert, err: wrapErr(err)}
 	}
+	if len(cols) == 0 {
+		return InsertBuilder{InsertBuilder: insert, err: wrapErr(fmt.Errorf("Map returned no columns for %T; for an all-default INSERT use sq.Expr(\"INSERT INTO %s DEFAULT VALUES\")", record, tableName))}
+	}
 
 	return InsertBuilder{InsertBuilder: insert.Into(tableName).Columns(cols...).Values(vals...)}
 }
 
 // InsertRecords builds a multi-row INSERT from a slice of records.
 //
-// Every record must produce the same Map column set; a drifted shape (e.g.
-// mixed nil and non-nil empty slices under ,omitzero) returns a build-time
-// error rather than emitting malformed multi-row SQL.
+// Every record must produce the same non-empty Map column set; a drifted
+// shape (e.g. mixed nil and non-nil empty slices under ,omitzero) or an
+// all-default record returns a build-time error rather than emitting
+// malformed multi-row SQL.
 func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName ...string) InsertBuilder {
 	insert := sq.InsertBuilder(s.StatementBuilderType)
 
@@ -58,6 +62,9 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 		cols, vals, err := Map(record)
 		if err != nil {
 			return InsertBuilder{InsertBuilder: insert, err: wrapErr(err)}
+		}
+		if len(cols) == 0 {
+			return InsertBuilder{InsertBuilder: insert, err: wrapErr(fmt.Errorf("Map returned no columns for record %d (%T); for an all-default INSERT use sq.Expr", i, record))}
 		}
 
 		if i == 0 {

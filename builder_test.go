@@ -45,6 +45,32 @@ func TestInsertRecords_UniformShape(t *testing.T) {
 	require.NoError(t, b.Err())
 }
 
+func TestInsertRecord_EmptyColumnsRejected(t *testing.T) {
+	// All fields tagged ,omitzero (or ,omitempty) and all zero leaves
+	// Map with no columns. Squirrel would emit invalid INSERT INTO t
+	// VALUES (); fail fast at build time and point at sq.Expr as the
+	// escape for the all-default INSERT case. Tracked in goware/pgkit#51.
+	type Item struct {
+		Tags []string `db:"tags,omitzero"`
+	}
+	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
+	b := sb.InsertRecord(&Item{}, "items")
+	require.Error(t, b.Err())
+	assert.Contains(t, b.Err().Error(), "no columns")
+	assert.Contains(t, b.Err().Error(), "sq.Expr")
+}
+
+func TestInsertRecords_EmptyColumnsRejected(t *testing.T) {
+	type Item struct {
+		Tags []string `db:"tags,omitzero"`
+	}
+	sb := &pgkit.StatementBuilder{StatementBuilderType: sq.StatementBuilder.PlaceholderFormat(sq.Dollar)}
+	records := []Item{{}, {}}
+	b := sb.InsertRecords(records, "items")
+	require.Error(t, b.Err())
+	assert.Contains(t, b.Err().Error(), "no columns")
+}
+
 func TestInsertRecords_OmitEmptyMapDriftRejected(t *testing.T) {
 	// Latent footgun ,omitzero exposes: legacy ,omitempty on a map already
 	// produced shape drift (nil map skipped, non-nil empty map kept via the
