@@ -81,6 +81,10 @@ type Page struct {
 	More   bool
 	Column string
 	Sort   []Sort
+
+	// Unused by the offset Paginator — shared here so callers can swap paginators without changing the Page type.
+	Cursor     string
+	NextCursor string
 }
 
 func NewPage(size, page uint32, sort ...Sort) *Page {
