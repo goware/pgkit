@@ -103,43 +103,7 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 			}
 
 			value := fld.Interface()
-
-			// Two flags because omitempty and omitzero disagree only on
-			// non-nil empty slices; every other path sets both together.
-			var isEmpty, isStrictZero bool
-			if t, ok := fld.Interface().(hasIsZero); ok {
-				if t.IsZero() {
-					isEmpty, isStrictZero = true, true
-				}
-			} else {
-				switch fld.Kind() {
-				case reflect.Slice:
-					if fld.IsNil() {
-						isEmpty, isStrictZero = true, true
-					} else if fld.Len() == 0 {
-						isEmpty = true
-					}
-				case reflect.Map:
-					if fld.IsNil() {
-						isEmpty, isStrictZero = true, true
-					}
-				case reflect.Array:
-					// omitempty must keep all-zero arrays of normal length.
-					// Switching to IsZero here would silently drop [16]byte
-					// UUIDs, [32]byte hashes, etc. omitzero gets the strict rule.
-					if fld.Len() == 0 {
-						isEmpty = true
-					}
-					if fld.IsZero() {
-						isStrictZero = true
-					}
-				default:
-					if reflect.DeepEqual(fi.Zero.Interface(), value) {
-						isEmpty, isStrictZero = true, true
-					}
-				}
-			}
-
+			isEmpty, isStrictZero := zeroFlags(fld, fi.Zero.Interface())
 			skip := (isEmpty && tagOmitEmpty) || (isStrictZero && tagOmitZero)
 			if skip && !options.IncludeZeroed {
 				continue
@@ -207,6 +171,39 @@ func (fv *fieldValue) Swap(i, j int) {
 
 func (fv *fieldValue) Less(i, j int) bool {
 	return fv.fields[i] < fv.fields[j]
+}
+
+// Two return values because omitempty and omitzero disagree only on
+// non-nil empty slices; every other path returns both flags the same.
+func zeroFlags(fld reflect.Value, fieldZero any) (isEmpty, isStrictZero bool) {
+	if t, ok := fld.Interface().(hasIsZero); ok {
+		if t.IsZero() {
+			return true, true
+		}
+		return false, false
+	}
+	switch fld.Kind() {
+	case reflect.Slice:
+		if fld.IsNil() {
+			return true, true
+		}
+		if fld.Len() == 0 {
+			return true, false
+		}
+	case reflect.Map:
+		if fld.IsNil() {
+			return true, true
+		}
+	case reflect.Array:
+		// omitempty must keep all-zero arrays of normal length; switching
+		// to IsZero here would silently drop [16]byte UUIDs, [32]byte hashes.
+		return fld.Len() == 0, fld.IsZero()
+	default:
+		if reflect.DeepEqual(fieldZero, fld.Interface()) {
+			return true, true
+		}
+	}
+	return false, false
 }
 
 type hasIsZero interface {
