@@ -88,19 +88,21 @@ func (p CursorPaginator[T, C, PC]) PrepareQuery(q sq.SelectBuilder, page *Page) 
 // PrepareResult must be called after GetAll to populate page.More and page.NextCursor.
 func (p CursorPaginator[T, C, PC]) PrepareResult(result []T, page *Page) ([]T, error) {
 	limit := int(page.Limit())
-	page.More = len(result) > limit
-	if page.More {
-		result = result[:limit]
-		var cursor C
-		if err := PC(&cursor).From(result[len(result)-1]); err != nil {
-			return nil, fmt.Errorf("cursor from row: %w", err)
-		}
-		next, err := EncodeCursor(cursor)
-		if err != nil {
-			return nil, err
-		}
-		page.NextCursor = next
-	}
 	page.Size = uint32(limit)
+	page.More = len(result) > limit
+	if !page.More {
+		return result, nil
+	}
+	result = result[:limit]
+
+	var cursor C
+	if err := PC(&cursor).From(result[len(result)-1]); err != nil {
+		return nil, fmt.Errorf("cursor from row: %w", err)
+	}
+	next, err := EncodeCursor(cursor)
+	if err != nil {
+		return nil, err
+	}
+	page.NextCursor = next
 	return result, nil
 }
