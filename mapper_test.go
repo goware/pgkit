@@ -80,17 +80,32 @@ func TestMap_OmitEmpty_EmptyNonNilMap(t *testing.T) {
 }
 
 func TestMap_OmitEmpty_AllZeroArray(t *testing.T) {
-	// Regression guard: pre-omitzero behavior — omitempty skipped an
-	// all-zero array via the DeepEqual fallback (e.g. [32]byte{} hashes,
-	// [16]byte UUIDs). Keep that for fixed-size byte fields.
+	// Regression guard for legacy omitempty behavior: pre-omitzero, the
+	// array/slice branch only set isZero on Len()==0, which is only true
+	// for the degenerate [0]T. The else-if chain blocked the DeepEqual
+	// fallback, so a normal-length all-zero array ([16]byte UUIDs,
+	// [32]byte hashes) was ALWAYS emitted under omitempty. Preserve that.
 	type Record struct {
 		Hash [16]byte `db:"hash,omitempty"`
 	}
 	got := mapFields(t, &Record{})
-	assert.NotContains(t, got, "hash", "all-zero array skipped by omitempty")
+	assert.Contains(t, got, "hash", "all-zero array kept under omitempty (legacy)")
 
 	got = mapFields(t, &Record{Hash: [16]byte{1}})
-	assert.Contains(t, got, "hash", "non-zero array kept by omitempty")
+	assert.Contains(t, got, "hash", "non-zero array kept under omitempty")
+}
+
+func TestMap_OmitZero_AllZeroArray(t *testing.T) {
+	// omitzero IS the strict-zero option, so an all-zero fixed-size array
+	// is skipped here. Distinct from omitempty's array behavior above.
+	type Record struct {
+		Hash [16]byte `db:"hash,omitzero"`
+	}
+	got := mapFields(t, &Record{})
+	assert.NotContains(t, got, "hash", "all-zero array skipped under omitzero")
+
+	got = mapFields(t, &Record{Hash: [16]byte{1}})
+	assert.Contains(t, got, "hash", "non-zero array kept under omitzero")
 }
 
 func TestMap_OmitZero_NilSlice(t *testing.T) {

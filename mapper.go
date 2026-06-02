@@ -131,8 +131,15 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 						isEmpty, isStrictZero = true, true
 					}
 				case reflect.Array:
+					// Legacy omitempty: only [0]T counted (Len==0). Normal-length
+					// all-zero arrays were emitted. Keep that — switching to
+					// IsZero for omitempty would silently drop [16]byte UUIDs,
+					// [32]byte hashes, etc. omitzero gets the strict rule.
+					if fld.Len() == 0 {
+						isEmpty = true
+					}
 					if fld.IsZero() {
-						isEmpty, isStrictZero = true, true
+						isStrictZero = true
 					}
 				default:
 					if reflect.DeepEqual(fi.Zero.Interface(), value) {
