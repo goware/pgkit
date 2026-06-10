@@ -44,3 +44,9 @@ CREATE TABLE stats (
   big_num NUMERIC(78,0) NOT NULL, -- representing a big.Int runtime type
   rating NUMERIC(78,0) NULL -- representing a nullable big.Int runtime type
 );
+
+-- every column DB-defaulted, so DEFAULT VALUES is the only insert path.
+CREATE TABLE default_only (
+  id BIGSERIAL PRIMARY KEY,
+  created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
