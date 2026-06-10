@@ -2,6 +2,7 @@ package pgkit
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 
@@ -31,12 +32,8 @@ func (s *StatementBuilder) InsertRecord(record interface{}, optTableName ...stri
 	return InsertBuilder{InsertBuilder: insert.Into(tableName).Columns(cols...).Values(vals...)}
 }
 
-// InsertRecords builds a multi-row INSERT from a slice of records.
-//
-// Every record must produce the same non-empty Map column set; a drifted
-// shape (e.g. mixed nil and non-nil empty slices under ,omitzero) or an
-// all-default record returns a build-time error rather than emitting
-// malformed multi-row SQL.
+// InsertRecords builds a multi-row INSERT from a slice of records, unioning
+// columns across rows and emitting DEFAULT for any slot a given row skipped.
 func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName ...string) InsertBuilder {
 	insert := sq.InsertBuilder(s.StatementBuilderType)
 
@@ -53,7 +50,8 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 		tableName = optTableName[0]
 	}
 
-	var baseCols []string
+	rows := make([]map[string]any, 0, v.Len())
+	colSet := map[string]struct{}{}
 	for i := 0; i < v.Len(); i++ {
 		record := v.Index(i).Interface()
 
@@ -67,25 +65,39 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 		if err != nil {
 			return InsertBuilder{InsertBuilder: insert, err: wrapErr(err)}
 		}
-		if len(cols) == 0 {
-			return InsertBuilder{InsertBuilder: insert, err: wrapErr(fmt.Errorf("Map returned no columns for record %d (%T); for an all-default INSERT use SQL.InsertDefaults (single-row only)", i, record))}
+		byCol := make(map[string]any, len(cols))
+		for j, c := range cols {
+			byCol[c] = vals[j]
+			colSet[c] = struct{}{}
 		}
-
-		if i == 0 {
-			baseCols = cols
-			insert = insert.Columns(cols...).Values(vals...)
-		} else {
-			if !slices.Equal(cols, baseCols) {
-				return InsertBuilder{
-					InsertBuilder: insert,
-					err:           wrapErr(fmt.Errorf("record %d columns %v differ from record 0 columns %v", i, cols, baseCols)),
-				}
-			}
-			insert = insert.Values(vals...)
-		}
+		rows = append(rows, byCol)
 	}
 
-	return InsertBuilder{InsertBuilder: insert.Into(tableName)}
+	// slices.Sorted matches Map's lexical column order, so generated SQL
+	// lines up with what callers see when they call Map(record) directly.
+	allCols := slices.Sorted(maps.Keys(colSet))
+	if len(allCols) == 0 {
+		hint := `SQL.InsertDefaults("<table>")`
+		if tableName != "" {
+			hint = fmt.Sprintf("SQL.InsertDefaults(%q)", tableName)
+		}
+		return InsertBuilder{InsertBuilder: insert, err: wrapErr(fmt.Errorf("Map returned no columns across any of the %d records; for all-default rows use %s in a loop", v.Len(), hint))}
+	}
+
+	insert = insert.Into(tableName).Columns(allCols...)
+	for _, row := range rows {
+		padded := make([]any, len(allCols))
+		for i, c := range allCols {
+			if v, ok := row[c]; ok {
+				padded[i] = v
+			} else {
+				padded[i] = sqlDefault
+			}
+		}
+		insert = insert.Values(padded...)
+	}
+
+	return InsertBuilder{InsertBuilder: insert}
 }
 
 // InsertDefaults builds INSERT INTO <table> DEFAULT VALUES; table must be non-empty.

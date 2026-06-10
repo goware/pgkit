@@ -1184,3 +1184,51 @@ func TestInsertDefaultsRoundTrip(t *testing.T) {
 	defer rows.Close()
 	require.True(t, rows.Next(), "row should exist")
 }
+
+type MixedShape struct {
+	ID      int64     `db:"id,omitzero"`
+	Name    string    `db:"name"`
+	Tags    []string  `db:"tags,omitzero"`
+	Note    *string   `db:"note,omitempty"`
+	Created time.Time `db:"created_at,omitempty"`
+}
+
+func TestInsertRecordsMixedShapeRoundTrip(t *testing.T) {
+	// Three rows, each contributing a different column subset. Each row
+	// should land with caller values where supplied and DB defaults
+	// (or NULL on nullable cols) where the row opted out.
+	truncateTable(t, "mixed_shape")
+
+	note := "third row's note"
+	records := []*MixedShape{
+		{Name: "first"}, // tags → DEFAULT '{}', note → NULL
+		{Name: "second", Tags: []string{"a", "b"}}, // note → NULL
+		{Name: "third", Note: &note},               // tags → DEFAULT '{}'
+	}
+
+	_, err := DB.Query.Exec(context.Background(), DB.SQL.InsertRecords(records, "mixed_shape"))
+	require.NoError(t, err)
+
+	var out []*MixedShape
+	err = DB.Query.GetAll(
+		context.Background(),
+		DB.SQL.Select("*").From("mixed_shape").OrderBy("id"),
+		&out,
+	)
+	require.NoError(t, err)
+	require.Len(t, out, 3)
+
+	assert.Equal(t, "first", out[0].Name)
+	assert.Empty(t, out[0].Tags)
+	assert.Nil(t, out[0].Note)
+	assert.False(t, out[0].Created.IsZero(), "created_at populated by DB default")
+
+	assert.Equal(t, "second", out[1].Name)
+	assert.Equal(t, []string{"a", "b"}, out[1].Tags)
+	assert.Nil(t, out[1].Note)
+
+	assert.Equal(t, "third", out[2].Name)
+	assert.Empty(t, out[2].Tags)
+	require.NotNil(t, out[2].Note)
+	assert.Equal(t, "third row's note", *out[2].Note)
+}

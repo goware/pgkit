@@ -50,3 +50,13 @@ CREATE TABLE default_only (
   id BIGSERIAL PRIMARY KEY,
   created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+
+-- mixed_shape proves heterogeneous batches survive end-to-end: nullable +
+-- defaulted columns let different rows opt out of different fields.
+CREATE TABLE mixed_shape (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  tags TEXT[] NOT NULL DEFAULT '{}',
+  note TEXT NULL,
+  created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
