@@ -104,7 +104,37 @@ func TestCursorPaginatorRejectsPreorderedQuery(t *testing.T) {
 	require.ErrorIs(t, err, pgkit.ErrCursorQueryOrdered)
 }
 
-func TestCursorPaginatorRejectsPageOrder(t *testing.T) {
+func TestCursorPaginatorAllowsMatchingPageOrder(t *testing.T) {
+	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor]()
+
+	tests := []struct {
+		name string
+		page *pgkit.Page
+	}{
+		{
+			name: "sort",
+			page: &pgkit.Page{Sort: []pgkit.Sort{{Column: "id", Order: pgkit.Desc}}},
+		},
+		{
+			name: "column",
+			page: &pgkit.Page{Column: "-id"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, q, err := paginator.PrepareQuery(sq.Select("*").From("t"), tt.page)
+			require.NoError(t, err)
+
+			sql, args, err := q.ToSql()
+			require.NoError(t, err)
+			require.Equal(t, `SELECT * FROM t ORDER BY "id" DESC LIMIT 11`, sql)
+			require.Empty(t, args)
+		})
+	}
+}
+
+func TestCursorPaginatorRejectsMismatchedPageOrder(t *testing.T) {
 	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor]()
 
 	tests := []struct {

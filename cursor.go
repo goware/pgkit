@@ -15,8 +15,8 @@ var (
 	ErrInvalidCursor = errors.New("invalid cursor")
 	// ErrCursorQueryOrdered signals a cursor-paginated query that already had ORDER BY.
 	ErrCursorQueryOrdered = errors.New("cursor query already has order by")
-	// ErrCursorPageOrdered signals cursor pagination with page-level ordering.
-	ErrCursorPageOrdered = errors.New("cursor page already has order")
+	// ErrCursorPageOrdered signals page-level ordering that does not match the cursor order.
+	ErrCursorPageOrdered = errors.New("cursor page order does not match cursor order")
 )
 
 // EncodeCursor produces an opaque cursor: base64-JSON, not signed, never use it for authorization.
@@ -49,6 +49,7 @@ type Cursor[Self any, Row any] interface {
 	PtrTo[Self]
 	Apply(sq.SelectBuilder) sq.SelectBuilder
 	From(Row) error
+	// OrderBy must match Apply and should include a unique tiebreaker.
 	OrderBy() []Sort
 }
 
@@ -79,14 +80,21 @@ func (p CursorPaginator[T, C, PC]) PrepareQuery(q sq.SelectBuilder, page *Page) 
 	}
 	page.SetDefaults(&p.settings)
 
-	if page.Column != "" || len(page.Sort) != 0 {
-		return nil, q, ErrCursorPageOrdered
-	}
 	if _, ok := builder.Get(q, "OrderByParts"); ok {
 		return nil, q, ErrCursorQueryOrdered
 	}
 	var zero C
-	for _, sort := range PC(&zero).OrderBy() {
+	order := PC(&zero).OrderBy()
+	pageOrder := page.GetOrder(nil)
+	if len(pageOrder) != 0 && len(pageOrder) != len(order) {
+		return nil, q, ErrCursorPageOrdered
+	}
+	for i := range pageOrder {
+		if pageOrder[i] != order[i].sanitize(nil) {
+			return nil, q, ErrCursorPageOrdered
+		}
+	}
+	for _, sort := range order {
 		q = q.OrderBy(sort.String())
 	}
 	if page.Cursor != "" {
