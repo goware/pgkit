@@ -1,6 +1,7 @@
 package pgkit
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"slices"
@@ -81,6 +82,10 @@ type Page struct {
 	More   bool
 	Column string
 	Sort   []Sort
+
+	// Unused by the offset Paginator — shared here so callers can swap paginators without changing the Page type.
+	Cursor     string
+	NextCursor string
 }
 
 func NewPage(size, page uint32, sort ...Sort) *Page {
@@ -249,6 +254,18 @@ func (p Paginator[T]) PrepareQuery(q sq.SelectBuilder, page *Page) ([]T, sq.Sele
 	limit := page.Limit()
 	q = q.Limit(limit + 1).Offset(page.Offset()).OrderBy(p.getOrder(page)...)
 	return make([]T, 0, limit+1), q
+}
+
+// Paginate returns offset-paginated rows and the page populated with More.
+func (p Paginator[T]) Paginate(ctx context.Context, query *Querier, q sq.SelectBuilder, page *Page) ([]T, *Page, error) {
+	if page == nil {
+		page = &Page{}
+	}
+	result, q := p.PrepareQuery(q, page)
+	if err := query.GetAll(ctx, q, &result); err != nil {
+		return nil, nil, err
+	}
+	return p.PrepareResult(result, page), page, nil
 }
 
 func (p Paginator[T]) PrepareRaw(q string, args []any, page *Page) ([]T, string, []any) {
