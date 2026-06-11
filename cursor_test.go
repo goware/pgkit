@@ -104,6 +104,31 @@ func TestCursorPaginatorRejectsPreorderedQuery(t *testing.T) {
 	require.ErrorIs(t, err, pgkit.ErrCursorQueryOrdered)
 }
 
+func TestCursorPaginatorRejectsPageOrder(t *testing.T) {
+	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor]()
+
+	tests := []struct {
+		name string
+		page *pgkit.Page
+	}{
+		{
+			name: "sort",
+			page: &pgkit.Page{Sort: []pgkit.Sort{{Column: "name", Order: pgkit.Asc}}},
+		},
+		{
+			name: "column",
+			page: &pgkit.Page{Column: "name"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := paginator.PrepareQuery(sq.Select("*").From("t"), tt.page)
+			require.ErrorIs(t, err, pgkit.ErrCursorPageOrdered)
+		})
+	}
+}
+
 func TestCursorPaginatorInvalidCursor(t *testing.T) {
 	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor]()
 	page := &pgkit.Page{Cursor: "!!!not-base64!!!"}

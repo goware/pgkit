@@ -15,6 +15,8 @@ var (
 	ErrInvalidCursor = errors.New("invalid cursor")
 	// ErrCursorQueryOrdered signals a cursor-paginated query that already had ORDER BY.
 	ErrCursorQueryOrdered = errors.New("cursor query already has order by")
+	// ErrCursorPageOrdered signals cursor pagination with page-level ordering.
+	ErrCursorPageOrdered = errors.New("cursor page already has order")
 )
 
 // EncodeCursor produces an opaque cursor: base64-JSON, not signed, never use it for authorization.
@@ -77,6 +79,9 @@ func (p CursorPaginator[T, C, PC]) PrepareQuery(q sq.SelectBuilder, page *Page) 
 	}
 	page.SetDefaults(&p.settings)
 
+	if page.Column != "" || len(page.Sort) != 0 {
+		return nil, q, ErrCursorPageOrdered
+	}
 	if _, ok := builder.Get(q, "OrderByParts"); ok {
 		return nil, q, ErrCursorQueryOrdered
 	}
