@@ -1,6 +1,7 @@
 package pgkit
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -108,6 +109,25 @@ func (p CursorPaginator[T, C, PC]) PrepareQuery(q sq.SelectBuilder, page *Page) 
 	limit := page.Limit()
 	q = q.Limit(limit + 1)
 	return make([]T, 0, limit+1), q, nil
+}
+
+// List returns cursor-paginated rows and the page populated with More and NextCursor.
+func (p CursorPaginator[T, C, PC]) List(ctx context.Context, query *Querier, q sq.SelectBuilder, page *Page) ([]T, *Page, error) {
+	if page == nil {
+		page = &Page{}
+	}
+	result, q, err := p.PrepareQuery(q, page)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := query.GetAll(ctx, q, &result); err != nil {
+		return nil, nil, err
+	}
+	result, err = p.PrepareResult(result, page)
+	if err != nil {
+		return nil, nil, err
+	}
+	return result, page, nil
 }
 
 // PrepareResult must be called after GetAll to populate page.More and page.NextCursor.
