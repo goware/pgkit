@@ -25,11 +25,11 @@ func (c *articleCursor) From(article *Article) error {
 	return nil
 }
 
-func TestCursorPaginatorListReturnsPage(t *testing.T) {
+func TestCursorPaginatorPaginateReturnsPage(t *testing.T) {
 	ctx := t.Context()
 	db := initDB(DB)
 
-	account := &Account{Name: "CursorPaginatorList Account"}
+	account := &Account{Name: "CursorPaginatorPaginate Account"}
 	err := db.Accounts.Save(ctx, account)
 	require.NoError(t, err)
 
@@ -48,7 +48,7 @@ func TestCursorPaginatorListReturnsPage(t *testing.T) {
 		From("articles").
 		Where(sq.Eq{"account_id": account.ID})
 
-	first, firstPage, err := paginator.List(ctx, db.Query, q, nil)
+	first, firstPage, err := paginator.Paginate(ctx, db.Query, q, nil)
 	require.NoError(t, err)
 	require.Len(t, first, 2)
 	require.NotNil(t, firstPage)
@@ -59,7 +59,7 @@ func TestCursorPaginatorListReturnsPage(t *testing.T) {
 	page := &pgkit.Page{
 		Cursor: firstPage.NextCursor,
 	}
-	second, secondPage, err := paginator.List(ctx, db.Query, q, page)
+	second, secondPage, err := paginator.Paginate(ctx, db.Query, q, page)
 	require.NoError(t, err)
 	require.Len(t, second, 2)
 	require.Same(t, page, secondPage)
@@ -69,6 +69,51 @@ func TestCursorPaginatorListReturnsPage(t *testing.T) {
 	for _, a := range first {
 		for _, b := range second {
 			require.NotEqual(t, a.ID, b.ID, "cursor pages should not overlap")
+		}
+	}
+}
+
+func TestPaginatorPaginateReturnsPage(t *testing.T) {
+	ctx := t.Context()
+	db := initDB(DB)
+
+	account := &Account{Name: "PaginatorPaginate Account"}
+	err := db.Accounts.Save(ctx, account)
+	require.NoError(t, err)
+
+	for range 5 {
+		err := db.Articles.Save(ctx, &Article{
+			AccountID: account.ID,
+			Author:    "Offset Author",
+		})
+		require.NoError(t, err)
+	}
+
+	paginator := pgkit.NewPaginator[*Article](pgkit.WithDefaultSize(2))
+	q := db.SQL.Select("*").
+		From("articles").
+		Where(sq.Eq{"account_id": account.ID})
+
+	first, firstPage, err := paginator.Paginate(ctx, db.Query, q, nil)
+	require.NoError(t, err)
+	require.Len(t, first, 2)
+	require.NotNil(t, firstPage)
+	require.Equal(t, uint32(2), firstPage.Size)
+	require.Equal(t, uint32(1), firstPage.Page)
+	require.True(t, firstPage.More)
+
+	page := &pgkit.Page{Page: 2}
+	second, secondPage, err := paginator.Paginate(ctx, db.Query, q, page)
+	require.NoError(t, err)
+	require.Len(t, second, 2)
+	require.Same(t, page, secondPage)
+	require.Equal(t, uint32(2), secondPage.Size)
+	require.Equal(t, uint32(2), secondPage.Page)
+	require.True(t, secondPage.More)
+
+	for _, a := range first {
+		for _, b := range second {
+			require.NotEqual(t, a.ID, b.ID, "offset pages should not overlap")
 		}
 	}
 }

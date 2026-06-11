@@ -111,8 +111,8 @@ func (p CursorPaginator[T, C, PC]) PrepareQuery(q sq.SelectBuilder, page *Page) 
 	return make([]T, 0, limit+1), q, nil
 }
 
-// List returns cursor-paginated rows and the page populated with More and NextCursor.
-func (p CursorPaginator[T, C, PC]) List(ctx context.Context, query *Querier, q sq.SelectBuilder, page *Page) ([]T, *Page, error) {
+// Paginate returns cursor-paginated rows and the page populated with More and NextCursor.
+func (p CursorPaginator[T, C, PC]) Paginate(ctx context.Context, query *Querier, q sq.SelectBuilder, page *Page) ([]T, *Page, error) {
 	if page == nil {
 		page = &Page{}
 	}
