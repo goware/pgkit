@@ -7,10 +7,15 @@ import (
 	"fmt"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/lann/builder"
 )
 
-// ErrInvalidCursor signals a client-supplied cursor that failed to decode — map to 400, not 500.
-var ErrInvalidCursor = errors.New("invalid cursor")
+var (
+	// ErrInvalidCursor signals a client-supplied cursor that failed to decode - map to 400, not 500.
+	ErrInvalidCursor = errors.New("invalid cursor")
+	// ErrCursorQueryOrdered signals a cursor-paginated query that already had ORDER BY.
+	ErrCursorQueryOrdered = errors.New("cursor query already has order by")
+)
 
 // EncodeCursor produces an opaque cursor: base64-JSON, not signed, never use it for authorization.
 func EncodeCursor[C any](cursor C) (string, error) {
@@ -39,18 +44,18 @@ func DecodeCursor[C any](value string) (*C, error) {
 
 // Cursor is the interface a typed keyset cursor satisfies — mirrors pgkit.Record[T, I]'s self-pointer pattern.
 type Cursor[Self any, Row any] interface {
-	*Self
+	PtrTo[Self]
 	Apply(sq.SelectBuilder) sq.SelectBuilder
 	From(Row) error
+	OrderBy() []Sort
 }
 
 // CursorPaginator is the keyset sibling of Paginator[T] for ordering-stable pagination under concurrent writes.
-// The caller owns ORDER BY; C.Apply must match it or pages will silently skip or duplicate rows.
 type CursorPaginator[T any, C any, PC Cursor[C, T]] struct {
 	settings PaginatorSettings
 }
 
-// NewCursorPaginator honors only size options — WithSort / WithColumnFunc are no-ops because the caller owns ORDER BY.
+// NewCursorPaginator honors only size options - the cursor owns ORDER BY.
 func NewCursorPaginator[T any, C any, PC Cursor[C, T]](options ...PaginatorOption) CursorPaginator[T, C, PC] {
 	settings := &PaginatorSettings{
 		DefaultSize: DefaultPageSize,
@@ -72,6 +77,13 @@ func (p CursorPaginator[T, C, PC]) PrepareQuery(q sq.SelectBuilder, page *Page) 
 	}
 	page.SetDefaults(&p.settings)
 
+	if _, ok := builder.Get(q, "OrderByParts"); ok {
+		return nil, q, ErrCursorQueryOrdered
+	}
+	var zero C
+	for _, sort := range PC(&zero).OrderBy() {
+		q = q.OrderBy(sort.String())
+	}
 	if page.Cursor != "" {
 		cursor, err := DecodeCursor[C](page.Cursor)
 		if err != nil {

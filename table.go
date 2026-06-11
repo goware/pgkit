@@ -15,9 +15,14 @@ import (
 // ID is a comparable type used for record IDs.
 type ID comparable
 
+// PtrTo constrains a type parameter to be a pointer to T.
+type PtrTo[T any] interface {
+	*T
+}
+
 // Records must be a pointer with the methods defined on the pointer.
 type Record[T any, I ID] interface {
-	*T // Enforce T is a pointer.
+	PtrTo[T]
 	GetID() I
 	Validate() error
 }

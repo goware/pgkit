@@ -23,6 +23,10 @@ func (c *rowCursor) Apply(q sq.SelectBuilder) sq.SelectBuilder {
 	return q.Where(sq.Lt{"id": c.ID})
 }
 
+func (c *rowCursor) OrderBy() []pgkit.Sort {
+	return []pgkit.Sort{{Column: "id", Order: pgkit.Desc}}
+}
+
 func (c *rowCursor) From(r row) error {
 	c.ID = r.ID
 	return nil
@@ -74,7 +78,7 @@ func TestCursorPaginatorFirstPage(t *testing.T) {
 
 	sql, args, err := q.ToSql()
 	require.NoError(t, err)
-	require.Equal(t, "SELECT * FROM t LIMIT 3", sql)
+	require.Equal(t, `SELECT * FROM t ORDER BY "id" DESC LIMIT 3`, sql)
 	require.Empty(t, args)
 }
 
@@ -89,8 +93,15 @@ func TestCursorPaginatorWithCursor(t *testing.T) {
 
 	sql, args, err := q.ToSql()
 	require.NoError(t, err)
-	require.Equal(t, "SELECT * FROM t WHERE id < ? LIMIT 3", sql)
+	require.Equal(t, `SELECT * FROM t WHERE id < ? ORDER BY "id" DESC LIMIT 3`, sql)
 	require.Equal(t, []any{"row_5"}, args)
+}
+
+func TestCursorPaginatorRejectsPreorderedQuery(t *testing.T) {
+	paginator := pgkit.NewCursorPaginator[row, rowCursor, *rowCursor]()
+
+	_, _, err := paginator.PrepareQuery(sq.Select("*").From("t").OrderBy("name"), &pgkit.Page{})
+	require.ErrorIs(t, err, pgkit.ErrCursorQueryOrdered)
 }
 
 func TestCursorPaginatorInvalidCursor(t *testing.T) {
@@ -144,7 +155,7 @@ func TestCursorPaginatorDefaultsFromNilPage(t *testing.T) {
 
 	sql, _, err := q.ToSql()
 	require.NoError(t, err)
-	require.Equal(t, "SELECT * FROM t LIMIT 11", sql)
+	require.Equal(t, `SELECT * FROM t ORDER BY "id" DESC LIMIT 11`, sql)
 }
 
 func TestCursorPaginatorCapsAtMaxSize(t *testing.T) {
@@ -159,7 +170,7 @@ func TestCursorPaginatorCapsAtMaxSize(t *testing.T) {
 
 	sql, _, err := q.ToSql()
 	require.NoError(t, err)
-	require.Equal(t, "SELECT * FROM t LIMIT 11", sql)
+	require.Equal(t, `SELECT * FROM t ORDER BY "id" DESC LIMIT 11`, sql)
 	require.Equal(t, uint32(10), page.Size)
 }
 
@@ -175,7 +186,7 @@ func TestCursorPaginatorMaxSizeBelowDefaultIsLifted(t *testing.T) {
 
 	sql, _, err := q.ToSql()
 	require.NoError(t, err)
-	require.Equal(t, "SELECT * FROM t LIMIT 21", sql)
+	require.Equal(t, `SELECT * FROM t ORDER BY "id" DESC LIMIT 21`, sql)
 }
 
 func TestCursorPaginatorWalksPages(t *testing.T) {
@@ -211,6 +222,10 @@ type failingRowCursor struct {
 
 func (c *failingRowCursor) Apply(q sq.SelectBuilder) sq.SelectBuilder {
 	return q.Where(sq.Lt{"id": c.ID})
+}
+
+func (c *failingRowCursor) OrderBy() []pgkit.Sort {
+	return []pgkit.Sort{{Column: "id", Order: pgkit.Desc}}
 }
 
 var errBoom = errors.New("boom")
