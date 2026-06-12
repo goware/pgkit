@@ -26,6 +26,35 @@ const (
 	Asc  Order = "ASC"
 )
 
+// PageKind classifies a Page by the fields it carries. It is validation input
+// for Table.ListPaged, not a mode selector — the table's Mode picks the path.
+type PageKind uint8
+
+const (
+	EmptyPage  PageKind = iota // neither a cursor nor an explicit page number
+	OffsetPage                 // an explicit page number (Page > 1), no cursor
+	CursorPage                 // a cursor, no page number
+	MixedPage                  // both a cursor and a page number — always invalid
+)
+
+// Kind classifies the page by its populated fields.
+func (p *Page) Kind() PageKind {
+	if p == nil {
+		return EmptyPage
+	}
+	hasCursor, hasPage := p.Cursor != "", p.Page > 1
+	switch {
+	case hasCursor && hasPage:
+		return MixedPage
+	case hasCursor:
+		return CursorPage
+	case hasPage:
+		return OffsetPage
+	default:
+		return EmptyPage
+	}
+}
+
 // IsValid reports whether o is one of the defined sort directions.
 func (o Order) IsValid() bool {
 	return o == Asc || o == Desc
