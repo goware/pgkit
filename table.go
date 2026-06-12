@@ -397,11 +397,33 @@ func (t *Table[T, P, I]) List(ctx context.Context, where sq.Sqlizer, orderBy []s
 	return records, nil
 }
 
+// idCursor is the keyset cursor ListPaged encodes when ordering by IDColumn.
+// It carries its own direction so a bare {Cursor: next} page continues the walk.
+type idCursor[I ID] struct {
+	ID    I     `json:"id"`
+	Order Order `json:"order"`
+}
+
 // ListPaged returns paginated records matching the condition.
+//
+// When the effective order is exactly IDColumn (the default), pages with more
+// rows get NextCursor populated. A Page carrying that cursor continues as a
+// keyset walk over IDColumn instead of offset pagination: forward-only, no
+// random page access, but pages never skip or duplicate rows under concurrent
+// writes. The cursor encodes its direction; a conflicting page order returns
+// ErrCursorPageOrdered and a cursor combined with a page number > 1 returns
+// ErrCursorPaged. IDColumn must be unique for the keyset ordering to be stable.
 func (t *Table[T, P, I]) ListPaged(ctx context.Context, where sq.Sqlizer, page *Page) ([]P, *Page, error) {
 	if page == nil {
 		page = &Page{}
 	}
+	if page.Cursor != "" {
+		if page.Page > 1 {
+			return nil, nil, ErrCursorPaged
+		}
+		return t.listKeyset(ctx, where, page)
+	}
+
 	// Ensure deterministic ordering for stable pagination.
 	if len(page.Sort) == 0 && page.Column == "" && len(t.Paginator.settings.Sort) == 0 {
 		page.Sort = []Sort{{Column: t.IDColumn, Order: Asc}}
@@ -413,6 +435,75 @@ func (t *Table[T, P, I]) ListPaged(ctx context.Context, where sq.Sqlizer, page *
 		return nil, nil, err
 	}
 	result = t.Paginator.PrepareResult(result, page)
+	if order, ok := t.idOrder(page); ok && page.More {
+		next, err := EncodeCursor(idCursor[I]{ID: result[len(result)-1].GetID(), Order: order})
+		if err != nil {
+			return nil, nil, err
+		}
+		page.NextCursor = next
+	}
+	return result, page, nil
+}
+
+// idOrder reports whether the page's effective order is exactly IDColumn, and in which direction.
+func (t *Table[T, P, I]) idOrder(page *Page) (Order, bool) {
+	sorts := page.GetOrder(t.Paginator.settings.ColumnFunc, t.Paginator.settings.Sort...)
+	if len(sorts) != 1 || sorts[0].Column != (Sort{Column: t.IDColumn}).sanitize(nil).Column {
+		return "", false
+	}
+	return sorts[0].Order, true
+}
+
+// listKeyset continues a cursor walk over IDColumn; see ListPaged.
+func (t *Table[T, P, I]) listKeyset(ctx context.Context, where sq.Sqlizer, page *Page) ([]P, *Page, error) {
+	cursor, err := DecodeCursor[idCursor[I]](page.Cursor)
+	if err != nil {
+		return nil, nil, err
+	}
+	// The cursor is minted by ListPaged with an exact direction - anything else is a
+	// forged or corrupted token, so reject it rather than coerce like user sort input.
+	order := cursor.Order
+	if !order.IsValid() {
+		return nil, nil, ErrInvalidCursor
+	}
+	if sorts := page.GetOrder(t.Paginator.settings.ColumnFunc, t.Paginator.settings.Sort...); len(sorts) != 0 {
+		if len(sorts) != 1 || sorts[0] != (Sort{Column: t.IDColumn, Order: order}).sanitize(nil) {
+			return nil, nil, ErrCursorPageOrdered
+		}
+	}
+
+	page.SetDefaults(&t.Paginator.settings)
+	page.More = false
+	page.NextCursor = ""
+
+	q := t.SQL.Select("*").From(t.Name).Where(where).
+		OrderBy(Sort{Column: t.IDColumn, Order: order}.String())
+	if order == Desc {
+		q = q.Where(sq.Lt{t.IDColumn: cursor.ID})
+	} else {
+		q = q.Where(sq.Gt{t.IDColumn: cursor.ID})
+	}
+
+	limit := int(page.Limit())
+	q = q.Limit(uint64(limit) + 1)
+
+	result := make([]P, 0, limit+1)
+	if err := t.Query.GetAll(ctx, q, &result); err != nil {
+		return nil, nil, err
+	}
+
+	page.Size = uint32(limit)
+	if len(result) <= limit {
+		return result, page, nil
+	}
+	page.More = true
+	result = result[:limit]
+	next, err := EncodeCursor(idCursor[I]{ID: result[len(result)-1].GetID(), Order: order})
+	if err != nil {
+		return nil, nil, err
+	}
+	page.NextCursor = next
+
 	return result, page, nil
 }
 
