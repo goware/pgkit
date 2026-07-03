@@ -1,6 +1,7 @@
 package pgkit
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"regexp"
@@ -25,6 +26,49 @@ const (
 	Asc  Order = "ASC"
 )
 
+// PageKind classifies a Page by the fields it carries. It is validation input
+// for Table.ListPaged, not a mode selector — the table's Mode picks the path.
+type PageKind uint8
+
+const (
+	EmptyPage  PageKind = iota // neither a cursor nor an explicit page number
+	OffsetPage                 // an explicit page number (Page > 1), no cursor
+	CursorPage                 // a cursor, no page number
+	MixedPage                  // both a cursor and a page number — always invalid
+)
+
+// Kind classifies the page by its populated fields.
+func (p *Page) Kind() PageKind {
+	if p == nil {
+		return EmptyPage
+	}
+	hasCursor, hasPage := p.Cursor != "", p.Page > 1
+	switch {
+	case hasCursor && hasPage:
+		return MixedPage
+	case hasCursor:
+		return CursorPage
+	case hasPage:
+		return OffsetPage
+	default:
+		return EmptyPage
+	}
+}
+
+// IsValid reports whether o is one of the defined sort directions.
+func (o Order) IsValid() bool {
+	return o == Asc || o == Desc
+}
+
+// Sanitize normalizes case and surrounding whitespace, defaulting any unrecognized value to Asc.
+func (o Order) Sanitize() Order {
+	o = Order(strings.ToUpper(strings.TrimSpace(string(o))))
+	if !o.IsValid() {
+		return Asc
+	}
+	return o
+}
+
 type Sort struct {
 	Column string
 	Order  Order
@@ -39,14 +83,7 @@ func (s Sort) sanitize(columnFunc func(string) string) Sort {
 		s.Column = pgx.Identifier(strings.Split(s.Column, ".")).Sanitize()
 	}
 
-	switch strings.ToUpper(strings.TrimSpace(string(s.Order))) {
-	case string(Desc):
-		s.Order = Desc
-	case string(Asc):
-		s.Order = Asc
-	default:
-		s.Order = Asc
-	}
+	s.Order = s.Order.Sanitize()
 	return s
 }
 
@@ -100,23 +137,13 @@ func (p *Page) SetDefaults(o *PaginatorSettings) {
 	if o == nil {
 		o = &PaginatorSettings{}
 	}
-	defaultSize := o.DefaultSize
-	if defaultSize == 0 {
-		defaultSize = DefaultPageSize
-	}
-	maxSize := o.MaxSize
-	if maxSize == 0 {
-		maxSize = MaxPageSize
-	}
-	if p.Size == 0 {
-		p.Size = defaultSize
-	}
+	defaultSize := cmp.Or(o.DefaultSize, DefaultPageSize)
+	maxSize := cmp.Or(o.MaxSize, MaxPageSize)
+	p.Size = cmp.Or(p.Size, defaultSize)
 	if p.Size > maxSize {
 		p.Size = maxSize
 	}
-	if p.Page == 0 {
-		p.Page = 1
-	}
+	p.Page = cmp.Or(p.Page, 1)
 }
 
 func (p *Page) GetOrder(columnFunc func(string) string, defaultSort ...string) []Sort {
@@ -303,6 +330,8 @@ func (p Paginator[T]) PrepareRaw(q string, args []any, page *Page) ([]T, string,
 func (p Paginator[T]) PrepareResult(result []T, page *Page) []T {
 	limit := int(page.Limit())
 	page.More = len(result) > limit
+	// Offset pagination yields no cursor - clear any stale value from a reused page.
+	page.NextCursor = ""
 	if page.More {
 		result = result[:limit]
 	}

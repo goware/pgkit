@@ -18,6 +18,10 @@ var (
 	ErrCursorQueryOrdered = errors.New("cursor query already has order by")
 	// ErrCursorPageOrdered signals page-level ordering that does not match the cursor order.
 	ErrCursorPageOrdered = errors.New("cursor page order does not match cursor order")
+	// ErrCursorPaged signals a page carrying both a cursor and a page number.
+	ErrCursorPaged = errors.New("cursor and page number are mutually exclusive")
+	// ErrPageKindMismatch signals a page whose kind does not match the table's pagination mode.
+	ErrPageKindMismatch = errors.New("page kind does not match the table's pagination mode")
 )
 
 // EncodeCursor produces an opaque cursor: base64-JSON, not signed, never use it for authorization.
@@ -135,6 +139,7 @@ func (p CursorPaginator[T, C, PC]) PrepareResult(result []T, page *Page) ([]T, e
 	limit := int(page.Limit())
 	page.Size = uint32(limit)
 	page.More = len(result) > limit
+	page.NextCursor = ""
 	if !page.More {
 		return result, nil
 	}

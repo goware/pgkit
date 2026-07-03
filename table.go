@@ -34,6 +34,8 @@ type Table[T any, P Record[T, I], I ID] struct {
 	Name      string
 	IDColumn  string
 	Paginator Paginator[P]
+	// Mode selects how ListPaged paginates. Zero value PageBased (offset).
+	Mode PaginatorKind
 }
 
 // HasSetCreatedAt is implemented by records that track creation time.
@@ -397,11 +399,64 @@ func (t *Table[T, P, I]) List(ctx context.Context, where sq.Sqlizer, orderBy []s
 	return records, nil
 }
 
-// ListPaged returns paginated records matching the condition.
+// PaginatorKind selects a Table's pagination mode. The zero value is PageBased.
+type PaginatorKind uint8
+
+const (
+	PageBased   PaginatorKind = iota // offset pagination (default)
+	CursorBased                      // keyset pagination over IDColumn
+)
+
+// idCursor is the keyset cursor a CursorBased table encodes; it carries its own
+// direction so a bare {Cursor: next} page continues the walk.
+type idCursor[I ID] struct {
+	ID    I     `json:"id"`
+	Order Order `json:"order"`
+}
+
+// ListPaged returns paginated records matching the condition, using the table's
+// configured Mode — NOT the shape of the supplied page. A PageBased table
+// offset-paginates; a CursorBased table keyset-paginates over IDColumn:
+// forward-only, no random page access; unlike offset pagination it does not
+// skip or duplicate rows when concurrent writes shift earlier pages (rows
+// inserted ahead of the cursor are simply not revisited). The page is
+// validated against the mode before any query runs: a cursor page to a
+// PageBased table or a page number to a CursorBased table returns
+// ErrPageKindMismatch, and a page carrying both a cursor and a page number
+// returns ErrCursorPaged. IDColumn must be unique for the keyset ordering to
+// be stable.
 func (t *Table[T, P, I]) ListPaged(ctx context.Context, where sq.Sqlizer, page *Page) ([]P, *Page, error) {
 	if page == nil {
 		page = &Page{}
 	}
+	if err := t.validatePage(page); err != nil {
+		return nil, nil, err
+	}
+	if t.Mode == CursorBased {
+		return t.listKeyset(ctx, where, page)
+	}
+	return t.listOffset(ctx, where, page)
+}
+
+// validatePage rejects page/mode combinations that cannot be served, so a caller
+// never silently gets the wrong pagination.
+func (t *Table[T, P, I]) validatePage(page *Page) error {
+	switch page.Kind() {
+	case MixedPage:
+		return ErrCursorPaged
+	case CursorPage:
+		if t.Mode != CursorBased {
+			return ErrPageKindMismatch
+		}
+	case OffsetPage:
+		if t.Mode == CursorBased {
+			return ErrPageKindMismatch
+		}
+	}
+	return nil
+}
+
+func (t *Table[T, P, I]) listOffset(ctx context.Context, where sq.Sqlizer, page *Page) ([]P, *Page, error) {
 	// Ensure deterministic ordering for stable pagination.
 	if len(page.Sort) == 0 && page.Column == "" && len(t.Paginator.settings.Sort) == 0 {
 		page.Sort = []Sort{{Column: t.IDColumn, Order: Asc}}
@@ -412,7 +467,89 @@ func (t *Table[T, P, I]) ListPaged(ctx context.Context, where sq.Sqlizer, page *
 	if err := t.Query.GetAll(ctx, q, &result); err != nil {
 		return nil, nil, err
 	}
-	result = t.Paginator.PrepareResult(result, page)
+	return t.Paginator.PrepareResult(result, page), page, nil
+}
+
+// listKeyset serves a CursorBased table: a first page (no cursor) or a
+// continuation (cursor). Direction comes from the cursor; a first page takes it
+// from a supplied id-order, else a single id-column default sort, else Asc. A
+// supplied page order is validated, never mutated (only a nil page is defaulted).
+func (t *Table[T, P, I]) listKeyset(ctx context.Context, where sq.Sqlizer, page *Page) ([]P, *Page, error) {
+	order := Asc
+	var after *I
+	if page.Cursor != "" {
+		cursor, err := DecodeCursor[idCursor[I]](page.Cursor)
+		if err != nil {
+			return nil, nil, err
+		}
+		// The cursor is minted here with an exact direction - anything else is a
+		// forged or corrupted token, so reject it rather than coerce.
+		if !cursor.Order.IsValid() {
+			return nil, nil, ErrInvalidCursor
+		}
+		order, after = cursor.Order, &cursor.ID
+	}
+
+	// Both column comparisons go through ColumnFunc + identifier sanitizing, so a
+	// ColumnFunc that rewrites the id column cannot desync them.
+	idCol := Sort{Column: t.IDColumn}.sanitize(t.Paginator.settings.ColumnFunc).Column
+	// A page-supplied order is validated strictly. The table's default sort is
+	// consulted only on a first page, and only to pick the direction when it is a
+	// single id-column sort — non-id defaults are offset-mode config, ignored here.
+	switch sorts := page.GetOrder(t.Paginator.settings.ColumnFunc); {
+	case len(sorts) == 0:
+		if page.Cursor != "" {
+			break // continuation: the cursor owns the direction
+		}
+		if ds := page.GetOrder(t.Paginator.settings.ColumnFunc, t.Paginator.settings.Sort...); len(ds) == 1 && ds[0].Column == idCol {
+			order = ds[0].Order
+		}
+	case len(sorts) == 1 && sorts[0].Column == idCol:
+		if page.Cursor != "" && sorts[0].Order != order {
+			return nil, nil, ErrCursorPageOrdered // continuation: must match the cursor
+		}
+		if page.Cursor == "" {
+			order = sorts[0].Order // first page: caller picks direction
+		}
+	default:
+		return nil, nil, ErrCursorPageOrdered // keyset only orders by IDColumn
+	}
+
+	page.SetDefaults(&t.Paginator.settings)
+	page.Page = 0 // keyset pagination has no page number
+	page.More = false
+	page.NextCursor = ""
+
+	q := t.SQL.Select("*").From(t.Name).Where(where).
+		OrderBy(Sort{Column: t.IDColumn, Order: order}.String())
+	if after != nil {
+		if order == Desc {
+			q = q.Where(sq.Lt{t.IDColumn: *after})
+		} else {
+			q = q.Where(sq.Gt{t.IDColumn: *after})
+		}
+	}
+
+	limit := int(page.Limit())
+	q = q.Limit(uint64(limit) + 1)
+
+	result := make([]P, 0, limit+1)
+	if err := t.Query.GetAll(ctx, q, &result); err != nil {
+		return nil, nil, err
+	}
+
+	page.Size = uint32(limit)
+	if len(result) <= limit {
+		return result, page, nil
+	}
+	page.More = true
+	result = result[:limit]
+	next, err := EncodeCursor(idCursor[I]{ID: result[len(result)-1].GetID(), Order: order})
+	if err != nil {
+		return nil, nil, err
+	}
+	page.NextCursor = next
+
 	return result, page, nil
 }
 
@@ -530,6 +667,18 @@ func (t *Table[T, P, I]) WithPaginator(opts ...PaginatorOption) *Table[T, P, I] 
 		Name:      t.Name,
 		IDColumn:  t.IDColumn,
 		Paginator: NewPaginator[P](opts...),
+		Mode:      t.Mode,
+	}
+}
+
+// WithMode returns a table instance using the given pagination mode.
+func (t *Table[T, P, I]) WithMode(mode PaginatorKind) *Table[T, P, I] {
+	return &Table[T, P, I]{
+		DB:        t.DB,
+		Name:      t.Name,
+		IDColumn:  t.IDColumn,
+		Paginator: t.Paginator,
+		Mode:      mode,
 	}
 }
 
@@ -544,6 +693,7 @@ func (t *Table[T, P, I]) WithTx(tx pgx.Tx) *Table[T, P, I] {
 		Name:      t.Name,
 		IDColumn:  t.IDColumn,
 		Paginator: t.Paginator,
+		Mode:      t.Mode,
 	}
 }
 
