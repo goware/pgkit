@@ -50,9 +50,13 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 		tableName = optTableName[0]
 	}
 
-	rows := make([]map[string]any, 0, v.Len())
-	colSet := map[string]struct{}{}
-	for i := 0; i < v.Len(); i++ {
+	// Map every record once. Map returns columns in a stable sorted order, so
+	// two rows share a shape iff their column slices are equal.
+	n := v.Len()
+	colsPerRow := make([][]string, n)
+	valsPerRow := make([][]any, n)
+	uniform := true
+	for i := 0; i < n; i++ {
 		record := v.Index(i).Interface()
 
 		if i == 0 && tableName == "" {
@@ -65,23 +69,46 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 		if err != nil {
 			return InsertBuilder{InsertBuilder: insert, err: wrapErr(err)}
 		}
-		byCol := make(map[string]any, len(cols))
-		for j, c := range cols {
-			byCol[c] = vals[j]
+		colsPerRow[i] = cols
+		valsPerRow[i] = vals
+		if i > 0 && uniform && !slices.Equal(cols, colsPerRow[0]) {
+			uniform = false
+		}
+	}
+
+	// Fast path: every row has the same columns, so no column union or DEFAULT
+	// padding is needed. Skips the per-row map[string]any and padded []any that
+	// the mixed-shape path below allocates.
+	if uniform {
+		allCols := colsPerRow[0]
+		if len(allCols) == 0 {
+			return InsertBuilder{InsertBuilder: insert, err: wrapErr(noColumnsErr(tableName, n))}
+		}
+		insert = insert.Into(tableName).Columns(allCols...)
+		for _, vals := range valsPerRow {
+			insert = insert.Values(vals...)
+		}
+		return InsertBuilder{InsertBuilder: insert}
+	}
+
+	// Mixed-shape path: union the columns across rows and emit DEFAULT for any
+	// slot a given row skipped.
+	colSet := map[string]struct{}{}
+	rows := make([]map[string]any, n)
+	for i := range colsPerRow {
+		byCol := make(map[string]any, len(colsPerRow[i]))
+		for j, c := range colsPerRow[i] {
+			byCol[c] = valsPerRow[i][j]
 			colSet[c] = struct{}{}
 		}
-		rows = append(rows, byCol)
+		rows[i] = byCol
 	}
 
 	// slices.Sorted matches Map's lexical column order, so generated SQL
 	// lines up with what callers see when they call Map(record) directly.
 	allCols := slices.Sorted(maps.Keys(colSet))
 	if len(allCols) == 0 {
-		hint := `SQL.InsertDefaults("<table>")`
-		if tableName != "" {
-			hint = fmt.Sprintf("SQL.InsertDefaults(%q)", tableName)
-		}
-		return InsertBuilder{InsertBuilder: insert, err: wrapErr(fmt.Errorf("Map returned no columns across any of the %d records; for all-default rows use %s in a loop", v.Len(), hint))}
+		return InsertBuilder{InsertBuilder: insert, err: wrapErr(noColumnsErr(tableName, n))}
 	}
 
 	insert = insert.Into(tableName).Columns(allCols...)
@@ -98,6 +125,16 @@ func (s StatementBuilder) InsertRecords(recordsSlice interface{}, optTableName .
 	}
 
 	return InsertBuilder{InsertBuilder: insert}
+}
+
+// noColumnsErr is the error for a batch where no record contributed any column
+// (e.g. all records were empty). Shared by both InsertRecords paths.
+func noColumnsErr(tableName string, nRecords int) error {
+	hint := `SQL.InsertDefaults("<table>")`
+	if tableName != "" {
+		hint = fmt.Sprintf("SQL.InsertDefaults(%q)", tableName)
+	}
+	return fmt.Errorf("Map returned no columns across any of the %d records; for all-default rows use %s in a loop", nRecords, hint)
 }
 
 // InsertDefaults builds INSERT INTO <table> DEFAULT VALUES; table must be non-empty.
