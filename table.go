@@ -561,6 +561,11 @@ func (t *Table[T, P, I]) Iter(ctx context.Context, where sq.Sqlizer, orderBy []s
 		return nil, fmt.Errorf("query rows: %w", err)
 	}
 
+	return t.iterRows(rows), nil
+}
+
+// iterRows yields records scanned from rows, closing rows when iteration ends.
+func (t *Table[T, P, I]) iterRows(rows pgx.Rows) iter.Seq2[P, error] {
 	return func(yield func(P, error) bool) {
 		defer rows.Close()
 		for rows.Next() {
@@ -576,7 +581,7 @@ func (t *Table[T, P, I]) Iter(ctx context.Context, where sq.Sqlizer, orderBy []s
 		if err := rows.Err(); err != nil {
 			yield(nil, err)
 		}
-	}, nil
+	}
 }
 
 // GetByID returns a record by its ID.
