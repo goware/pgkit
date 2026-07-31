@@ -565,12 +565,18 @@ func (t *Table[T, P, I]) Iter(ctx context.Context, where sq.Sqlizer, orderBy []s
 }
 
 // iterRows yields records scanned from rows, closing rows when iteration ends.
+//
+// A single RowScanner is created once and reused across every row: it caches
+// the column-to-field mapping after the first Scan, so the reflection work is
+// done once per query rather than once per row (which pgxscan.API.ScanRow
+// would do by allocating a fresh RowScanner each call).
 func (t *Table[T, P, I]) iterRows(rows pgx.Rows) iter.Seq2[P, error] {
 	return func(yield func(P, error) bool) {
 		defer rows.Close()
+		rs := t.Query.Scan.NewRowScanner(rows)
 		for rows.Next() {
 			var record T
-			if err := t.Query.Scan.ScanRow(&record, rows); err != nil {
+			if err := rs.Scan(&record); err != nil {
 				yield(nil, err)
 				return
 			}
