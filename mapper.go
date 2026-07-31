@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/goware/pgkit/v2/internal/reflectx"
@@ -66,45 +67,35 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 		recordT = recordV.Type()
 	}
 
-	// TODO: for the same "type", we can cache the fieldinfo, etc. as it will be the same
-	// on subsequent loads
-
 	switch recordT.Kind() {
 
 	case reflect.Struct:
-		fieldMap := Mapper.TypeMap(recordT).Names
-		nfields := len(fieldMap)
+		// The db-tagged fields, their options, and the column order depend only
+		// on the type, so they are computed once and cached (see planForType).
+		plan := planForType(recordT)
+		if plan.err != nil {
+			return nil, nil, plan.err
+		}
 
-		fv.values = make([]interface{}, 0, nfields)
-		fv.fields = make([]string, 0, nfields)
+		fv.values = make([]interface{}, 0, len(plan.fields))
+		fv.fields = make([]string, 0, len(plan.fields))
 
-		for _, fi := range fieldMap {
+		for i := range plan.fields {
+			pf := &plan.fields[i]
 
-			// Skip any fields which do not specify the `db:".."` tag
-			if !strings.Contains(string(fi.Field.Tag), dbTagPrefix) {
-				continue
-			}
-
-			// Field options
-			_, tagOmitEmpty := fi.Options["omitempty"]
-			_, tagOmitZero := fi.Options["omitzero"]
-			if tagOmitEmpty && tagOmitZero {
-				return nil, nil, fmt.Errorf("field %q has both ,omitempty and ,omitzero tags (mutually exclusive)", fi.Name)
-			}
-
-			fld := reflectx.FieldByIndexesReadOnly(recordV, fi.Index)
+			fld := reflectx.FieldByIndexesReadOnly(recordV, pf.index)
 
 			if fld.Kind() == reflect.Ptr && fld.IsNil() {
-				if (tagOmitEmpty || tagOmitZero) && !options.IncludeNil {
+				if (pf.omitEmpty || pf.omitZero) && !options.IncludeNil {
 					continue
 				}
-				fv.fields = append(fv.fields, fi.Name)
+				fv.fields = append(fv.fields, pf.name)
 				// ,omitempty preserves legacy: forced-include emits DEFAULT
 				// so callers can fall back to the column's DB default. ,omitzero
 				// is the strict tag: forced-include emits literal NULL so a
 				// PATCH can clear a nullable column with a non-null default.
 				var v any
-				if tagOmitEmpty {
+				if pf.omitEmpty {
 					v = sqlDefault
 				}
 				fv.values = append(fv.values, v)
@@ -112,23 +103,23 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 			}
 
 			value := fld.Interface()
-			isEmpty, isStrictZero := zeroFlags(fld, fi.Zero.Interface())
-			skip := (isEmpty && tagOmitEmpty) || (isStrictZero && tagOmitZero)
+			isEmpty, isStrictZero := zeroFlags(fld, pf.zero)
+			skip := (isEmpty && pf.omitEmpty) || (isStrictZero && pf.omitZero)
 			if skip && !options.IncludeZeroed {
 				continue
 			}
 
-			fv.fields = append(fv.fields, fi.Name)
-			// v, err := marshal(value)
-			// if err != nil {
-			// 	return nil, nil, err
-			// }
+			fv.fields = append(fv.fields, pf.name)
 			v := value
 			if skip {
 				v = sqlDefault
 			}
 			fv.values = append(fv.values, v)
 		}
+
+		// The plan is already in sorted column order, so the struct output is
+		// too (skips preserve order); no per-call sort needed.
+		return fv.fields, fv.values, nil
 
 	case reflect.Map:
 		nfields := recordV.Len()
@@ -162,6 +153,68 @@ func MapWithOptions(record interface{}, options *MapOptions) ([]string, []interf
 	sort.Sort(&fv)
 
 	return fv.fields, fv.values, nil
+}
+
+// mapPlan is the precomputed, per-type field layout Map uses for structs: the
+// db-tagged fields in final (sorted) column order. Building it once per type
+// lets each Map call skip the tag scan, option parsing, and column sort.
+type mapPlan struct {
+	fields []planField
+	err    error // e.g. a field carrying both ,omitempty and ,omitzero
+}
+
+type planField struct {
+	name      string
+	index     []int
+	zero      any // fi.Zero.Interface(), for zeroFlags comparison
+	omitEmpty bool
+	omitZero  bool
+}
+
+// mapPlanCache maps reflect.Type -> *mapPlan. sync.Map gives lock-free reads on
+// the hot path once a type has been seen.
+var mapPlanCache sync.Map
+
+func planForType(recordT reflect.Type) *mapPlan {
+	if p, ok := mapPlanCache.Load(recordT); ok {
+		return p.(*mapPlan)
+	}
+	plan := buildPlan(recordT)
+	actual, _ := mapPlanCache.LoadOrStore(recordT, plan)
+	return actual.(*mapPlan)
+}
+
+func buildPlan(recordT reflect.Type) *mapPlan {
+	fieldMap := Mapper.TypeMap(recordT).Names
+	plan := &mapPlan{fields: make([]planField, 0, len(fieldMap))}
+
+	for _, fi := range fieldMap {
+		// Skip any fields which do not specify the `db:".."` tag.
+		if !strings.Contains(string(fi.Field.Tag), dbTagPrefix) {
+			continue
+		}
+
+		_, tagOmitEmpty := fi.Options["omitempty"]
+		_, tagOmitZero := fi.Options["omitzero"]
+		if tagOmitEmpty && tagOmitZero {
+			return &mapPlan{err: fmt.Errorf("field %q has both ,omitempty and ,omitzero tags (mutually exclusive)", fi.Name)}
+		}
+
+		plan.fields = append(plan.fields, planField{
+			name:      fi.Name,
+			index:     fi.Index,
+			zero:      fi.Zero.Interface(),
+			omitEmpty: tagOmitEmpty,
+			omitZero:  tagOmitZero,
+		})
+	}
+
+	// Sort by column name so Map's output order matches the previous
+	// implementation (which sorted every call) and stays stable for cache hits.
+	sort.Slice(plan.fields, func(i, j int) bool {
+		return plan.fields[i].name < plan.fields[j].name
+	})
+	return plan
 }
 
 type fieldValue struct {
