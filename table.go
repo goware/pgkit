@@ -132,7 +132,15 @@ func (t *Table[T, P, I]) insertAll(ctx context.Context, records []P) error {
 	for start := 0; start < len(records); start += chunkSize {
 		end := min(start+chunkSize, len(records))
 
+		// Preserve the original pointers: GetAll resets the slice and appends
+		// freshly scanned structs, so it only reflects back to the caller when
+		// they spread a slice. Copy the DB-returned values into the originals so
+		// caller records receive generated ids/defaults regardless of how they
+		// called Insert (same behaviour as insertOne/GetOne and Save).
 		chunk := records[start:end]
+		originals := make([]P, len(chunk))
+		copy(originals, chunk)
+
 		q := t.SQL.
 			InsertRecords(chunk).
 			Into(t.Name).
@@ -140,6 +148,11 @@ func (t *Table[T, P, I]) insertAll(ctx context.Context, records []P) error {
 
 		if err := t.Query.GetAll(ctx, q, &chunk); err != nil {
 			return fmt.Errorf("insert records: %w", err)
+		}
+
+		for i, rr := range chunk {
+			*originals[i] = *rr
+			records[start+i] = originals[i]
 		}
 	}
 
