@@ -5,11 +5,15 @@ pgkit
 [![Go Report Card](https://goreportcard.com/badge/github.com/goware/pgkit/v2)](https://goreportcard.com/report/github.com/goware/pgkit/v2)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**pgkit** is a small, friendly toolkit for talking to PostgreSQL from Go.
+lightweight PostgreSQL sugar combining the use of..
 
-It sits on top of the excellent [pgx](https://github.com/jackc/pgx) driver and adds
-just enough "sugar" to make everyday database work quick and pleasant — without
-hiding SQL from you or turning into a heavy ORM.
+* github.com/jackc/pgx
+* github.com/Masterminds/squirrel
+* github.com/georgysavva/scany/v2
+* plus, code & ideas from github.com/upper/db
+
+In other words: just enough sugar to make everyday database work quick and
+pleasant — without hiding SQL from you or turning into a heavy ORM.
 
 
 ## What problem does it solve?
@@ -26,16 +30,9 @@ pgkit takes care of all of that, so you can write less code and make fewer mista
 You still get real SQL and full access to pgx when you need it.
 
 
-## What's inside
+## What pgkit adds
 
-pgkit combines a few well-loved libraries and adds its own helpers:
-
-- [jackc/pgx](https://github.com/jackc/pgx) — the PostgreSQL driver and connection pool
-- [Masterminds/squirrel](https://github.com/Masterminds/squirrel) — a safe SQL query builder
-- [georgysavva/scany](https://github.com/georgysavva/scany) — scans query results into your structs
-- ideas and code from [upper/db](https://github.com/upper/db)
-
-On top of these, pgkit gives you:
+On top of those libraries, pgkit gives you:
 
 - **one-line connect** with sensible pool defaults
 - **struct mapping** — turn a Go struct into columns and values using `db:"..."` tags
