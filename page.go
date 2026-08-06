@@ -3,7 +3,6 @@ package pgkit
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -92,7 +91,7 @@ func (s Sort) String() string {
 	if s.Column == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s %s", s.Column, s.Order)
+	return s.Column + " " + string(s.Order)
 }
 
 var _MatcherOrderBy = regexp.MustCompile(`-?([a-zA-Z0-9]+)`)
@@ -266,7 +265,7 @@ func (p Paginator[T]) getOrder(page *Page) []string {
 	sort := page.GetOrder(p.settings.ColumnFunc, p.settings.Sort...)
 	list := make([]string, len(sort))
 	for i := range sort {
-		list[i] = fmt.Sprintf("%s %s", sort[i].Column, sort[i].Order)
+		list[i] = sort[i].Column + " " + string(sort[i].Order)
 	}
 	return list
 }

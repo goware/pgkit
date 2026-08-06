@@ -1,9 +1,9 @@
 package pgkit
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
@@ -260,14 +260,15 @@ func (r RawSQL) Prepare(query string) (string, int, error) {
 
 	parts := strings.Split(query, "?")
 
-	q := bytes.Buffer{}
+	q := strings.Builder{}
 	for i, p := range parts {
 		if p == "" {
 			continue
 		}
 		q.WriteString(p)
 		if i < n {
-			q.WriteString(fmt.Sprintf("$%d", i+1))
+			q.WriteByte('$')
+			q.WriteString(strconv.Itoa(i + 1))
 		}
 	}
 
